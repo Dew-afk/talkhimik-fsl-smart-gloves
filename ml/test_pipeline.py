@@ -11,7 +11,9 @@ Covers:
 
 import json
 import os
+import re
 import shutil
+import sys
 import tempfile
 
 import numpy as np
@@ -59,6 +61,10 @@ def main():
                      + take("J", 5, [7]))  # 1-row take: not measurable
         gates = motion_gates(gate_rows)
         assert gates == {"J": 37.0}, gates  # (p95 still 4 + min J 70) / 2
+        # phrases move: they must not raise J's gate, and Salamat gets its own
+        assert motion_gates(
+            gate_rows + take("Salamat", 6, [0, 60]) + take("Oo", 7, [0, 50])
+        ) == {"J": 37.0, "Salamat": 32.0}  # (p95 still 4 + 60) / 2
         assert motion_gates(take("A", 1, [0, 3])) == {}
         assert report["low_take_labels_dropped"] == {}
 
@@ -115,6 +121,47 @@ def main():
             label_sessions.setdefault(r["label"], set()).add(r["session"])
         for l, ss in label_sessions.items():
             assert ss & tr, f"label {l} has no train sessions"
+
+        # --- a label recorded in only one of 3 sessions must not crash ---
+        # (the session split leaves test empty -> whole takes are split)
+        sparse = os.path.join(tmp, "sparse")
+        os.makedirs(sparse)
+        rng = np.random.default_rng(7)
+        for name, labels_in in (("S-1", ("A", "B")), ("S-2", ("A", "B")),
+                                ("S-3", ("A", "Salamat"))):
+            lines = [",".join(synth._header())]
+            for li, label in enumerate(labels_in):
+                center = synth.CLUSTERS.get(label, synth.CLUSTERS["V"])
+                for t in range(1, 11):
+                    take_rows = np.clip(rng.normal(center, 3, (3, 5)), 0, 90)
+                    lines += synth._csv_lines(
+                        name, "P-001", "L", 3, label, li * 10 + t,
+                        take_rows, np.zeros((3, 2)))
+            base = os.path.join(sparse, name)
+            with open(base + ".csv", "w", encoding="utf-8") as f:
+                f.write("\n".join(lines) + "\n")
+            with open(base + "_sidecar.json", "w", encoding="utf-8") as f:
+                json.dump(synth._sidecar(name, "P-001", "L", 3,
+                                         len(lines) - 1), f)
+        sparse_out = os.path.join(tmp, "sparse_out")
+        argv, sys.argv = sys.argv, ["train.py", sparse, "--out", sparse_out]
+        try:
+            train.main()
+        finally:
+            sys.argv = argv
+        sparse_labels = json.load(open(
+            os.path.join(sparse_out, "labels.json"), encoding="utf-8"))
+        ids = {c["label"]: c["word_id"] for c in sparse_labels["classes"]}
+        assert ids == {"A": 1, "B": 2, "Salamat": 104}, ids
+
+        # --- word ids mirror the app vocabulary -----------------------
+        vocab = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                             "..", "lib", "domain", "vocab",
+                             "fsl_vocabulary.dart")
+        app_ids = {name: int(i) for i, name in re.findall(
+            r"wordId: (\d+), filipino: '([^']*)'",
+            open(vocab, encoding="utf-8").read())}
+        assert train.FSL_WORD_IDS == app_ids
 
         # --- train + evaluate both variants ---------------------------
         results = {}

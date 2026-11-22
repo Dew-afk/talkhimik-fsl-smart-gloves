@@ -549,14 +549,14 @@ telemetry (20 Hz) ── signing hand (Settings → Recognition)
 
 Pipeline facts: validation and every drop decision are reported
 (missing sidecar, cal mismatch, invalid-finger sessions, bad-quality
-rows, <5-take labels, Z skipped); **J is motion-gated**: its handshape
-trains like any letter, and `motion_gates()` writes `labels.json`
+rows, <5-take labels, Z skipped); **J and Salamat are motion-gated**: their handshape
+trains like any label, and `motion_gates()` writes `labels.json`
 `motion_labels: {"J": {"pitch_span_deg": x, "window_ms": 1500}}` with x
-midway between still takes (95th-percentile pitch span) and J's smallest
-take span. The app (`MotionGate`, recognition controller) emits J only
-while pitch changed ≥ x in the last 1.5 s; a still J handshape is neutral.
-Pitch, because roll wraps at ±180 and yaw drifts. A hand with < 3 sessions
-splits by take instead (report flags it optimistic); splits are grouped by SESSION
+midway between still takes (letters and REST, not phrases; 95th-percentile pitch span) and that sign's
+smallest take span. The app (`MotionGate`, recognition controller) emits it
+only while pitch changed ≥ x in the last 1.5 s; a still handshape is neutral.
+Pitch, because roll wraps at ±180 and yaw drifts. A hand whose
+session split would leave train, val or test empty splits by take instead (report flags it optimistic); splits are grouped by SESSION
 (~70/15/15, per-label coverage — never random rows) with
 leave-one-signer-out when ≥ 2 signers (one signer → the report says
 cross-person generalization is untested); two input variants are

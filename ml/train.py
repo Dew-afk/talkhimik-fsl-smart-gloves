@@ -29,8 +29,15 @@ FSL_WORD_IDS = {
     "I": 9, "J": 10, "K": 11, "L": 12, "M": 13, "N": 14, "Ñ": 15,
     "NG": 16, "O": 17, "P": 18, "Q": 19, "R": 20, "S": 21, "T": 22,
     "U": 23, "V": 24, "W": 25, "X": 26, "Y": 27, "Z": 28,
+    "Kumusta": 100, "Magandang umaga": 101, "Magandang hapon": 102,
+    "Magandang gabi": 103, "Salamat": 104, "Walang anuman": 105,
+    "Paalam": 106, "Oo": 107, "Hindi": 108, "Pasensya na": 109,
+    "Tulong": 110, "Mahal kita": 111, "Ano ang pangalan mo?": 112,
+    "Saan ang palikuran?": 113, "Gutom ako": 114, "Uhaw ako": 115,
+    "Magkano?": 116,
 }
 REST_WORD_ID = 0
+FIRST_PHRASE_ID = 100  # phrases are signed with movement
 
 HIDDEN = [32, 32]
 MAX_EPOCHS = 200
@@ -51,7 +58,8 @@ DEFAULT_MOTION_SPAN = 40.0  # only when no take has 2+ rows to measure
 def motion_gates(rows):
     """Per motion label present: the pitch change (deg) the app must see
     within MOTION_WINDOW_MS before emitting it. Midway between still takes
-    (95th percentile span, so one fidgety REST take cannot raise it) and
+    (letters and REST, not phrases, which move; 95th percentile span, so
+    one fidgety REST take cannot raise it) and
     the motion label's smallest take span. Pitch, not roll (wraps at
     +/-180) or yaw (drifts)."""
     pitches = {}
@@ -60,7 +68,8 @@ def motion_gates(rows):
                            []).append(r["pitch"])
     spans = {k: max(v) - min(v) for k, v in pitches.items() if len(v) >= 2}
     still = sorted(s for (l, _, _), s in spans.items()
-                   if l not in MOTION_LABELS)
+                   if l not in MOTION_LABELS
+                   and FSL_WORD_IDS.get(l, 0) < FIRST_PHRASE_ID)
     still_hi = still[int(0.95 * (len(still) - 1))] if still else 0.0
     gates = {}
     for label in sorted({r["label"] for r in rows} & MOTION_LABELS):
@@ -455,17 +464,19 @@ def main():
     best = None  # (variant, model, mu, sigma, metrics, floor, floor_table)
     for hand in train_hands:
         hr = hand_rows[hand]
-        if len({r["session"] for r in hr}) < 3:
-            # Too few sessions for a session split (val/test would be empty):
-            # split whole TAKES instead. Takes from one sitting share glove
-            # fit and posture, so held-out accuracy is optimistic.
+        sessions = split_sessions(hr, args.seed)
+        if not all(sessions):
+            # Train, val or test came out empty (too few sessions, or labels
+            # recorded in only one): split whole TAKES instead. Takes from one
+            # sitting share glove fit and posture, so held-out accuracy is
+            # optimistic.
             hr = [dict(r, session=f"{r['session']}#take{r['take']}")
                   for r in hr]
-            note = (f"hand {hand}: fewer than 3 sessions - split by take; "
+            note = (f"hand {hand}: too few sessions per label - split by take; "
                     "held-out accuracy is OPTIMISTIC (same sitting)")
             loader_report.setdefault("split_notes", []).append(note)
             print("WARNING: " + note)
-        sessions = split_sessions(hr, args.seed)
+            sessions = split_sessions(hr, args.seed)
         for variant in ("A", "B"):
             X = feature_matrix(hr, variant)
             X_train = feature_matrix(rows_for(hr, sessions[0]), variant)

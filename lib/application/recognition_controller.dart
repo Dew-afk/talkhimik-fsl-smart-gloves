@@ -136,7 +136,7 @@ class RecognitionController extends Notifier<RecognitionState> {
   final MotionGate _motion = MotionGate();
   final ClassifierFactory _factory = const ClassifierFactory();
   final Map<GloveHand, (ModelBundle?, GestureClassifier)> _classifiers = {};
-  Map<String, int> _wordIdByLetter = const {};
+  Map<String, int> _wordIdByLabel = const {};
   bool _userEnabled = true; // Developer toggle, default ON
 
   @override
@@ -159,8 +159,9 @@ class RecognitionController extends Notifier<RecognitionState> {
     });
     if (mock) _stabilizer.reset();
     final vocab = ref.read(vocabularyRepositoryProvider);
-    _wordIdByLetter = {
-      for (final e in vocab.letters) e.filipino: e.wordId,
+    _wordIdByLabel = {
+      for (final e in [...vocab.letters, ...vocab.phrases])
+        e.filipino: e.wordId,
     };
     return RecognitionState(
       classifier: RecognitionConstants.thresholdSource,
@@ -285,7 +286,7 @@ class RecognitionController extends Notifier<RecognitionState> {
 
     final emitLabel = result.emitLabel;
     if (emitLabel == null) return;
-    final wordId = _wordIdByLetter[emitLabel];
+    final wordId = _wordIdByLabel[emitLabel];
     if (wordId == null) return;
     final confidence = (result.voteShare * (prediction?.confidence ?? 0) * 100)
         .round()

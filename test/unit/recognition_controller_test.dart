@@ -33,14 +33,17 @@ TelemetryPacket fistFrame(int seq,
 /// angle sum — a fist (sum ~330) is 'A', a relaxed pose (sum ~85) is
 /// '_rest', both with confidence ~1.0. Floor is parameterized per test.
 String testBundleJson(
-    {required double floor, String hand = 'L', String motion = ''}) {
+    {required double floor,
+    String hand = 'L',
+    String motion = '',
+    String label = 'A'}) {
   final labels = '''
 {
   "version": 1, "hand": "$hand", "rest_class": "_rest", $motion
   "input_spec": {"order": ["ang_thumb","ang_pointer","ang_middle",
     "ang_ring","ang_pinky"], "units": 5, "variant": "A"},
   "classes": [
-    {"index": 0, "label": "A", "word_id": 1},
+    {"index": 0, "label": "$label", "word_id": 1},
     {"index": 1, "label": "_rest", "word_id": 0}
   ],
   "confidence_floor": $floor, "floor_precision_95": true,
@@ -66,10 +69,14 @@ const testWeightsJson = '''
 ''';
 
 ModelBundle testBundle(
-        {double floor = 0.5, String hand = 'L', String motion = ''}) =>
+        {double floor = 0.5,
+        String hand = 'L',
+        String motion = '',
+        String label = 'A'}) =>
     ModelBundle.assemble(
-        testBundleJson(floor: floor, hand: hand, motion: motion),
-        testWeightsJson)!;
+        testBundleJson(
+            floor: floor, hand: hand, motion: motion, label: label),
+        testWeightsJson.replaceFirst('"A"', '"$label"'))!;
 
 void main() {
   (ProviderContainer, FakeGloveConnection, FakeGloveConnection, InMemorySettingsService,
@@ -325,6 +332,23 @@ void main() {
     final logEntries = await logs.eventsForSession(transcript.sessionId);
     expect(logEntries.first.source, 'phone-tflite');
     expect(logEntries.first.modelVersion, 'mlp-abc12345');
+  });
+
+  test('C4: a trained phrase label is emitted and spoken', () async {
+    final (c, left, _, _, _, tts) =
+        makeContainer(bundle: testBundle(label: 'Salamat'));
+    c.read(transcriptControllerProvider);
+    await pump(c);
+    await pump(c);
+
+    left.emitStatus(const DeviceStatusPacket(uncalibrated: false));
+    for (var i = 0; i < 25; i++) {
+      left.emitTelemetry(fistFrame(i));
+      await pump(c);
+    }
+
+    expect(c.read(transcriptControllerProvider).entries.single.wordId, 104);
+    expect(tts.spoken, contains('Salamat'));
   });
 
   test('C4: below the confidence floor nothing is emitted (counts as a '

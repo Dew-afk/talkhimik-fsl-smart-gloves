@@ -8,8 +8,8 @@ Rules (all reported, none silent):
   * sessions where any of the five needed fingers is invalid (its
     ang_<finger> column is missing) are EXCLUDED — the model needs all 5
   * rows with a bad quality flag (any valid-finger bit cleared) are dropped
-  * Z is skipped (dynamic letter, no motion gate yet). J is KEPT: its
-    handshape trains like any letter and train.py adds a motion gate
+  * Z is skipped (dynamic letter, no motion gate yet). J and Salamat are
+    KEPT: the handshape trains like any label and train.py adds a motion gate
     (pitch change) the app checks before emitting it
   * labels with fewer than MIN_TAKES takes are dropped and reported
   * the special REST label `_rest` is kept as a normal class
@@ -26,7 +26,7 @@ import sys
 
 FINGERS = ["thumb", "pointer", "middle", "ring", "pinky"]
 SKIP_LABELS = {"Z"}
-MOTION_LABELS = {"J"}  # need a pitch change to emit (train.motion_gates)
+MOTION_LABELS = {"J", "Salamat"}  # need a pitch change to emit (train.motion_gates)
 REST_LABEL = "_rest"
 MIN_TAKES = 5  # labels with fewer takes than this are dropped (reported)
 
