@@ -46,6 +46,10 @@ abstract interface class SettingsService {
   /// gloves; forced OFF while the mock drives the transcript).
   Future<bool> phoneRecognitionEnabled();
   Future<void> setPhoneRecognitionEnabled(bool value);
+
+  /// Phrases shown under "still" on the Record screen (default: none).
+  Future<Set<String>> stillPhrases();
+  Future<void> setStillPhrases(Set<String> value);
 }
 
 /// shared_preferences implementation (Windows/web/Android all supported).
@@ -67,6 +71,7 @@ class SharedPrefsSettingsService implements SettingsService {
   static const _kDemoScenario = 'settings.demoScenario';
   static const _kSigningHand = 'settings.signingHand';
   static const _kPhoneRecognitionEnabled = 'settings.phoneRecognitionEnabled';
+  static const _kStillPhrases = 'settings.stillPhrases';
 
   @override
   Future<String> outputLanguage() async =>
@@ -162,4 +167,12 @@ class SharedPrefsSettingsService implements SettingsService {
   @override
   Future<void> setPhoneRecognitionEnabled(bool value) =>
       _prefs.setBool(_kPhoneRecognitionEnabled, value);
+
+  @override
+  Future<Set<String>> stillPhrases() async =>
+      (await _prefs.getStringList(_kStillPhrases) ?? const []).toSet();
+
+  @override
+  Future<void> setStillPhrases(Set<String> value) =>
+      _prefs.setStringList(_kStillPhrases, value.toList());
 }

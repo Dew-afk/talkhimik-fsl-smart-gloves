@@ -23,7 +23,8 @@ import synth
 import train
 from train import (INPUT_A, MLP, REST_LABEL, confidence_floor,
                    evaluate, export_labels, export_weights,
-                   feature_matrix, motion_gates, split_sessions,
+                   feature_matrix, motion_gates, motion_paths,
+                   moving_labels, split_sessions,
                    train_mlp)
 
 
@@ -55,16 +56,40 @@ def main():
         # --- motion gate: midway between still takes and J's motion ----
         def take(label, t, pitches):
             return [{"label": label, "session": "S", "take": t,
-                     "pitch": p} for p in pitches]
+                     "roll": 0, "pitch": p} for p in pitches]
         gate_rows = (take("A", 1, [0, 2, 4]) + take("B", 2, [10, 16])
                      + take("J", 3, [0, 40, 70]) + take("J", 4, [5, 90])
                      + take("J", 5, [7]))  # 1-row take: not measurable
         gates = motion_gates(gate_rows)
         assert gates == {"J": 37.0}, gates  # (p95 still 4 + min J 70) / 2
-        # phrases move: they must not raise J's gate, and Salamat gets its own
-        assert motion_gates(
-            gate_rows + take("Salamat", 6, [0, 60]) + take("Oo", 7, [0, 50])
-        ) == {"J": 37.0, "Salamat": 32.0}  # (p95 still 4 + 60) / 2
+        # any label that moves is detected, gets its own gate and paths, and
+        # does not raise J's gate; a fidgety REST never counts as moving
+        words = (gate_rows + take("Salamat", 6, [30, 10, -30])
+                 + take("Salamat", 7, [30, 30, 30])  # held still: no path
+                 + take("Salamat", 8, [40, 0, -20])
+                 + take(REST_LABEL, 9, [0, 40, 80]))
+        assert moving_labels(words) == {"J", "Salamat"}
+        assert motion_gates(gate_rows + take("Salamat", 6, [30, 10, -30])
+                            ) == {"J": 37.0, "Salamat": 32.0}
+        paths = motion_paths(words)
+        assert sorted(paths) == ["J", "Salamat"]
+        assert len(paths["Salamat"]) == 2
+        first = paths["Salamat"][0]
+        assert first["tol_deg"] == 24.0  # 0.4 x 60 deg
+        assert len(first["points"]) == 5
+        assert np.allclose(first["points"][0], [0.5, 0, 0.866], atol=1e-3)
+        # the score follows the app: the movement speaks, its reverse not
+        def moves(label, t, pitches):
+            return [dict(r, **{f"ang_{x}": 0.0 for x in synth.FINGERS})
+                    for r in take(label, t, pitches)]
+        sal = lambda X: np.tile([0.1, 0.9], (len(X), 1))
+        assert train.score_wrong_moves(
+            moves("_wrong_Salamat", 1, [30, 20, 5, -10, -30])
+            + moves("_wrong_Salamat", 2, [-30, -10, 5, 20, 30])
+            + moves("_random", 3, [0, 0, 0]),
+            sal, ["A", "Salamat"], "A", 0.5, {}, paths
+        ) == {"_random": {"takes": 1, "same_word": 0, "any_word": 0},
+              "_wrong_Salamat": {"takes": 2, "same_word": 1, "any_word": 1}}
         assert motion_gates(take("A", 1, [0, 3])) == {}
         assert report["low_take_labels_dropped"] == {}
 
@@ -143,6 +168,13 @@ def main():
             with open(base + "_sidecar.json", "w", encoding="utf-8") as f:
                 json.dump(synth._sidecar(name, "P-001", "L", 3,
                                          len(lines) - 1), f)
+        # wrong moves are scored, never trained (even under MIN_TAKES)
+        with open(os.path.join(sparse, "S-3.csv"), "a",
+                  encoding="utf-8") as f:
+            f.write("\n".join(synth._csv_lines(
+                "S-3", "P-001", "L", 3, "_wrong_A", 99,
+                np.tile(synth.CLUSTERS["A"], (3, 1)), np.zeros((3, 2))))
+                + "\n")
         sparse_out = os.path.join(tmp, "sparse_out")
         argv, sys.argv = sys.argv, ["train.py", sparse, "--out", sparse_out]
         try:
@@ -153,6 +185,9 @@ def main():
             os.path.join(sparse_out, "labels.json"), encoding="utf-8"))
         ids = {c["label"]: c["word_id"] for c in sparse_labels["classes"]}
         assert ids == {"A": 1, "B": 2, "Salamat": 104}, ids
+        sparse_report = open(os.path.join(sparse_out, "report.md"),
+                             encoding="utf-8").read()
+        assert "| _wrong_A | 1 | 1 | 1 |" in sparse_report  # held like an A
 
         # --- word ids mirror the app vocabulary -----------------------
         vocab = os.path.join(os.path.dirname(os.path.abspath(__file__)),

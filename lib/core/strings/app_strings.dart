@@ -177,7 +177,7 @@ class AppStrings {
       'Consent must be given before data collection (NFR-8).';
   static const recordNeedsCalibration =
       'Calibrate the glove before recording (cal_id 0).';
-  static const recordNeedsLabel = 'Enter a label for the take.';
+  static const recordNeedsLabel = 'Tap a bubble to choose what to record.';
   static String recordSensorAtLimit(String finger) =>
       'Rows are being skipped: the $finger sensor reads at its limit, '
       'which usually means a loose or broken wire.';
@@ -187,8 +187,9 @@ class AppStrings {
   static const recordNoNewData =
       'Rows are being skipped: no new readings from the glove. '
       'Check that it is still connected.';
-  static const datasetLabel = 'Label';
-  static const datasetLabelHint = 'e.g. A, KUMUSTA';
+  static String datasetSelected(String label) => 'Selected: $label';
+  static const datasetSelectedNone =
+      'Nothing selected. Tap a bubble below to choose what to record.';
   static const datasetStartTake = 'Start take';
   static const datasetStopTake = 'Stop take';
   static String datasetUndoTake(String label) => 'Undo last take ($label)';
@@ -201,7 +202,7 @@ class AppStrings {
   static const datasetResetAll = 'Delete all recordings';
   static const datasetResetTitle = 'Delete all recordings?';
   static const datasetResetBody =
-      'Every recording on this phone will be deleted and all letter counts '
+      'Every recording on this phone will be deleted and all counts '
       'go back to 0. Share them first if you want a copy. '
       'This cannot be reversed.';
   static const datasetResetConfirm = 'Delete all';
@@ -215,11 +216,29 @@ class AppStrings {
   static const recordAbort = 'Abort';
 
   // Dataset coverage + share-all (C2)
-  static const restLabelItem = 'REST — hand relaxed';
   static const coverageTitle = 'Dataset coverage';
   static const coverageHint =
       'Record each letter 10+ times; move your hand a little between '
       'takes; record REST so the app knows when you are not signing.';
+  static const sectionLetters = 'Letters';
+  static const sectionStill = 'Words and phrases (still)';
+  static const sectionMovement = 'Words and phrases (movement)';
+  static const sectionErrors = 'Error moves';
+  static const sectionStillEmpty =
+      'No words here. Press and hold a word below to move it here.';
+  static const sectionMovementHint =
+      'Record the whole movement, then pause half a second. '
+      'Press and hold a word to move it to the still section.';
+  static const sectionErrorsHint =
+      'Wrong versions of each word, like starting too low or moving '
+      'backwards. These only test the app; it never learns from them.';
+  static String wrongMove(String word) => 'Wrong $word';
+  static const randomMoves = 'Random moves';
+  static String moveWordTitle(String filipino, String english) =>
+      '$filipino ($english)';
+  static const moveWordBody = 'Which section does this word belong in?';
+  static const moveWordStill = 'Still';
+  static const moveWordMovement = 'Movement';
   static const coverageLater = 'later';
   static const coverageNeedsData = 'needs data';
   static const coverageOk = 'ok';

@@ -435,7 +435,8 @@ void main() {
           receivedAt: DateTime.now(),
         );
 
-    Future<int> emissions(List<double> pitches) async {
+    Future<int> emissions(List<double> pitches,
+        {String motion = motion}) async {
       final (c, left, _, _, _, _) =
           makeContainer(bundle: testBundle(motion: motion));
       c.read(transcriptControllerProvider);
@@ -455,6 +456,17 @@ void main() {
 
     test('the handshape with the pitch sweep is emitted once', () async {
       expect(await emissions([0, 0, 0, for (var i = 0; i < 22; i++) 60]), 1);
+    });
+
+    const recorded = '"motion_labels": {"A": {"pitch_span_deg": 30, "paths": '
+        '[{"tol_deg": 24, "points": [[0.5,0,0.866],[0,0,1],[-0.5,0,0.866]]}]'
+        '}},';
+
+    test('a recorded movement is emitted once, its reverse never', () async {
+      List<double> sweep(double to) =>
+          [-to, 0, for (var i = 0; i < 22; i++) to];
+      expect(await emissions(sweep(-30), motion: recorded), 1);
+      expect(await emissions(sweep(30), motion: recorded), 0);
     });
   });
 }

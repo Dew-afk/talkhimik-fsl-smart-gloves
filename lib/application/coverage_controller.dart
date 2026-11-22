@@ -8,10 +8,17 @@ import 'providers.dart';
 
 /// What the "Dataset coverage" card renders (C2).
 class CoverageState {
-  const CoverageState({this.index, this.loaded = false});
+  const CoverageState({
+    this.index,
+    this.loaded = false,
+    this.stillPhrases = const {},
+  });
 
   final CoverageIndex? index;
   final bool loaded;
+
+  /// Phrases the user moved to the "still" section; the rest move.
+  final Set<String> stillPhrases;
 
   /// 28 letters + REST, in picker order (REST last).
   List<String> targetLabels(List<VocabEntry> letters) => [
@@ -23,9 +30,25 @@ class CoverageState {
   int readyCount(List<VocabEntry> letters) =>
       index?.readyCount(targetLabels(letters)) ?? 0;
 
-  CoverageState copyWith({CoverageIndex? index, bool? loaded}) => CoverageState(
+  /// Error-section labels: the wrong version of every moving phrase (and of
+  /// any other phrase that already has wrong takes), then random moves.
+  List<String> errorLabels(List<VocabEntry> phrases) => [
+        for (final e in phrases)
+          if (!stillPhrases.contains(e.filipino) ||
+              (index?.labels.containsKey(wrongLabelFor(e.filipino)) ?? false))
+            wrongLabelFor(e.filipino),
+        randomMovesLabel,
+      ];
+
+  CoverageState copyWith({
+    CoverageIndex? index,
+    bool? loaded,
+    Set<String>? stillPhrases,
+  }) =>
+      CoverageState(
         index: index ?? this.index,
         loaded: loaded ?? this.loaded,
+        stillPhrases: stillPhrases ?? this.stillPhrases,
       );
 }
 
@@ -45,7 +68,22 @@ class CoverageController extends Notifier<CoverageState> {
       }
     });
     _load();
+    _loadStillPhrases();
     return const CoverageState();
+  }
+
+  Future<void> _loadStillPhrases() async {
+    final still = await ref.read(settingsServiceProvider).stillPhrases();
+    if (!ref.mounted) return;
+    state = state.copyWith(stillPhrases: still);
+  }
+
+  /// Moves [phrase] between the "still" and "movement" sections.
+  Future<void> setStill(String phrase, bool still) async {
+    final next = {...state.stillPhrases};
+    still ? next.add(phrase) : next.remove(phrase);
+    state = state.copyWith(stillPhrases: next);
+    await ref.read(settingsServiceProvider).setStillPhrases(next);
   }
 
   Future<void> _load() async {

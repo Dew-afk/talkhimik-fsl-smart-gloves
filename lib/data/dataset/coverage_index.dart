@@ -22,6 +22,12 @@ class CoverageThresholds {
 /// The special REST label as stored in CSV files.
 const String restLabel = '_rest';
 
+/// Wrong moves are recorded to TEST the model, never to train it (ml/ skips
+/// them). One per moving word, plus everyday moves shared by every word.
+const String randomMovesLabel = '_random';
+
+String wrongLabelFor(String word) => '_wrong_$word';
+
 /// Chip state for one label on the coverage card (icon + number, never
 /// color alone).
 enum CoverageLevel { needsData, ok, good, later }

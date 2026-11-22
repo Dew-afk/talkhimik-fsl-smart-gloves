@@ -68,4 +68,10 @@ class InMemorySettingsService implements SettingsService {
   @override
   Future<void> setPhoneRecognitionEnabled(bool value) async =>
       _phoneRecognitionEnabled = value;
+
+  Set<String> still = {};
+  @override
+  Future<Set<String>> stillPhrases() async => still;
+  @override
+  Future<void> setStillPhrases(Set<String> value) async => still = value;
 }

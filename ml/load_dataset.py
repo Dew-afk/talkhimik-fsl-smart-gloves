@@ -8,11 +8,13 @@ Rules (all reported, none silent):
   * sessions where any of the five needed fingers is invalid (its
     ang_<finger> column is missing) are EXCLUDED — the model needs all 5
   * rows with a bad quality flag (any valid-finger bit cleared) are dropped
-  * Z is skipped (dynamic letter, no motion gate yet). J and Salamat are
-    KEPT: the handshape trains like any label and train.py adds a motion gate
-    (pitch change) the app checks before emitting it
+  * Z is skipped (dynamic letter, no motion gate yet). J is KEPT: its
+    handshape trains like any letter and train.py exports the movement the
+    app checks before emitting it (as for every moving label)
   * labels with fewer than MIN_TAKES takes are dropped and reported
   * the special REST label `_rest` is kept as a normal class
+  * other labels starting with `_` (`_wrong_<word>`, `_random`) are wrong
+    moves: never training rows, only scored (train.score_wrong_moves)
 
 Output columns (fixed contract for train.py):
   signer, session, take, hand, calibration_id, label,
@@ -26,7 +28,7 @@ import sys
 
 FINGERS = ["thumb", "pointer", "middle", "ring", "pinky"]
 SKIP_LABELS = {"Z"}
-MOTION_LABELS = {"J", "Salamat"}  # need a pitch change to emit (train.motion_gates)
+MOTION_LABELS = {"J"}  # always moving; others are detected (train.moving_labels)
 REST_LABEL = "_rest"
 MIN_TAKES = 5  # labels with fewer takes than this are dropped (reported)
 
@@ -46,9 +48,14 @@ def _sidecar_for(csv_path):
     return base + "_sidecar.json"
 
 
-def load_dataset(input_dir):
+def is_wrong_move(label):
+    return label.startswith("_") and label != REST_LABEL
+
+
+def load_dataset(input_dir, wrong_moves=False):
     """Returns (rows, report). rows is a list of dicts in the output
-    contract; report is a dict of loader decisions for report.md."""
+    contract; report is a dict of loader decisions for report.md.
+    wrong_moves=True returns only the wrong-move rows instead."""
     report = {
         "files_seen": 0, "missing_sidecar": [], "cal_id_mismatch": [],
         "missing_columns": [], "invalid_finger_sessions": [],
@@ -102,7 +109,7 @@ def load_dataset(input_dir):
             label = (r.get("label") or "").strip()
             if label in SKIP_LABELS:
                 continue  # skipped silently per-spec, counted as labels_skipped
-            if not label:
+            if not label or is_wrong_move(label) != wrong_moves:
                 continue
             # Bad quality flag: a valid-finger bit cleared -> glitch row.
             quality = int(r.get("quality_flag", "0") or "0", 0)
@@ -137,6 +144,8 @@ def load_dataset(input_dir):
     for r in rows:
         takes.setdefault(r["label"], set()).add(
             (r["session"], r["take"]))
+    if wrong_moves:
+        return rows, report  # scored take by take: few takes still count
     report["low_take_labels_dropped"] = {
         l: len(ts) for l, ts in sorted(takes.items())
         if len(ts) < MIN_TAKES}

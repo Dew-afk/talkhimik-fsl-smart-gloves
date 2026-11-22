@@ -74,5 +74,20 @@ void main() {
         '"rest_class": "_rest", "motion_labels": '
         '{"J": {"pitch_span_deg": 35.5, "window_ms": 1500}},');
     expect(LabelsSpec.parse(withMotion)!.motionPitchSpan, {'J': 35.5});
+    expect(LabelsSpec.parse(withMotion)!.motionPaths, isEmpty);
+  });
+
+  test('recorded movements parse; malformed ones are skipped', () {
+    final spec = LabelsSpec.parse(labelsJson.replaceFirst(
+        '"rest_class": "_rest",',
+        '"rest_class": "_rest", "motion_labels": {'
+            '"J": {"pitch_span_deg": 30, "paths": ['
+            '{"tol_deg": 24, "points": [[0,0,1],[1,0,0]]},'
+            '{"tol_deg": 24, "points": [[0,0,1],[1,0]]}, 7]},'
+            '"K": {"pitch_span_deg": 20, "paths": []}},'))!;
+    expect(spec.motionPaths.keys, ['J']);
+    expect(spec.motionPaths['J']!.single.toleranceDeg, 24);
+    expect(spec.motionPaths['J']!.single.points.last, [1, 0, 0]);
+    expect(spec.motionPitchSpan, {'J': 30, 'K': 20});
   });
 }

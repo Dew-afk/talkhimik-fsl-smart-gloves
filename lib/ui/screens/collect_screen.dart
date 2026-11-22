@@ -9,6 +9,7 @@ import '../../application/providers.dart';
 import '../../core/strings/app_strings.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/dataset/coverage_index.dart';
+import '../../domain/vocab/vocab_entry.dart';
 import '../widgets/anim.dart';
 import '../widgets/header_band.dart';
 
@@ -23,22 +24,68 @@ class CollectScreen extends ConsumerStatefulWidget {
 }
 
 class _CollectScreenState extends ConsumerState<CollectScreen> {
-  final TextEditingController _labelController = TextEditingController();
+  final ScrollController _scroll = ScrollController();
 
-  /// The picker/coverage-chip selection, mirrored into the free-text field
-  /// (which is what [DatasetRecorderController.startTake] records).
+  /// The tapped bubble: what [DatasetRecorderController.startTake] records.
   String? _selectedLabel;
 
   @override
   void dispose() {
-    _labelController.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
+  /// Back to the record button: the bubbles are a long scroll below it.
   void _selectLabel(String stored) {
     setState(() => _selectedLabel = stored);
-    _labelController.text = stored;
+    _scroll.animateTo(0,
+        duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
   }
+
+  Future<void> _moveWord(VocabEntry e) async {
+    final still = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(AppStrings.moveWordTitle(e.filipino, e.english)),
+        content: const Text(AppStrings.moveWordBody),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text(AppStrings.moveWordStill),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text(AppStrings.moveWordMovement),
+          ),
+        ],
+      ),
+    );
+    if (still == null) return;
+    await ref
+        .read(coverageControllerProvider.notifier)
+        .setStill(e.filipino, still);
+  }
+
+  /// One collapsible group of bubbles.
+  Widget _section(String title,
+          {required List<Widget> chips,
+          String? hint,
+          bool initiallyExpanded = false}) =>
+      ExpansionTile(
+        key: PageStorageKey(title),
+        title: Text(title),
+        initiallyExpanded: initiallyExpanded,
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: const EdgeInsets.only(bottom: 8),
+        expandedCrossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (hint != null) ...[
+            Text(hint, style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(height: 8),
+          ],
+          Wrap(spacing: 8, runSpacing: 8, children: chips),
+        ],
+      );
 
   Future<void> _shareAll() async {
     final recorder = ref.read(datasetRecorderControllerProvider.notifier);
@@ -60,8 +107,14 @@ class _CollectScreenState extends ConsumerState<CollectScreen> {
     await SharePlus.instance.share(ShareParams(files: files));
   }
 
-  static String _display(String label) =>
-      label == restLabel ? 'REST' : label;
+  static String _display(String label) {
+    if (label == restLabel) return 'REST';
+    if (label == randomMovesLabel) return AppStrings.randomMoves;
+    final wrong = wrongLabelFor('');
+    return label.startsWith(wrong)
+        ? AppStrings.wrongMove(label.substring(wrong.length))
+        : label;
+  }
 
   Future<void> _confirmReset() async {
     final ok = await showDialog<bool>(
@@ -113,9 +166,12 @@ class _CollectScreenState extends ConsumerState<CollectScreen> {
 
   /// One coverage chip: label + take count + state icon. State is shown
   /// with an icon AND a number, never color alone (design system rule);
-  /// the icon's meaning is in the Tooltip. Tapping preselects the label.
+  /// the icon's meaning is in the Tooltip. Tapping selects the label, unless
+  /// a take is running ([locked]): that take keeps its label. Holding a
+  /// [phrase] moves it to another section.
   Widget _coverageChip(
-      BuildContext context, CoverageState coverage, String label) {
+      BuildContext context, CoverageState coverage, String label,
+      {VocabEntry? phrase, required bool locked}) {
     final takes = coverage.index?.labels[label]?.takes ?? 0;
     final cState = coverageLevelFor(label, takes);
     final (icon, stateName) = switch (cState) {
@@ -128,14 +184,18 @@ class _CollectScreenState extends ConsumerState<CollectScreen> {
       CoverageLevel.good => (Icons.verified, AppStrings.coverageGood),
     };
     final display = _display(label);
-    return Tooltip(
+    final chip = Tooltip(
       message: stateName,
+      triggerMode: phrase == null ? null : TooltipTriggerMode.manual,
       child: ActionChip(
         avatar: Icon(icon, size: 18),
         label: Text('$display · $takes'),
-        onPressed: () => _selectLabel(label),
+        onPressed: locked ? null : () => _selectLabel(label),
       ),
     );
+    return phrase == null
+        ? chip
+        : GestureDetector(onLongPress: () => _moveWord(phrase), child: chip);
   }
 
   @override
@@ -145,6 +205,17 @@ class _CollectScreenState extends ConsumerState<CollectScreen> {
     final coverage = ref.watch(coverageControllerProvider);
     final letters = ref.read(vocabularyRepositoryProvider).letters;
     final recording = state.phase == RecordingPhase.recording;
+    final phrases = ref.read(vocabularyRepositoryProvider).phrases;
+    final still = [
+      for (final e in phrases)
+        if (coverage.stillPhrases.contains(e.filipino)) e,
+    ];
+    final moving = [
+      for (final e in phrases)
+        if (!coverage.stillPhrases.contains(e.filipino)) e,
+    ];
+    final selected = _selectedLabel ?? state.label;
+    final locked = state.takeActive;
 
     return Scaffold(
       appBar: AppBar(title: const Text(AppStrings.recordModeTitle)),
@@ -158,6 +229,7 @@ class _CollectScreenState extends ConsumerState<CollectScreen> {
           ),
           Expanded(
             child: ListView(
+              controller: _scroll,
               padding: const EdgeInsets.all(16),
               children: [
           if (state.error != null) ...[
@@ -171,40 +243,14 @@ class _CollectScreenState extends ConsumerState<CollectScreen> {
             ),
             const SizedBox(height: 12),
           ],
-          // Label: vocabulary picker + free-text fallback (master §12.5).
-          DropdownButtonFormField<String>(
-            initialValue:
-                _selectedLabel ?? (state.label.isEmpty ? null : state.label),
-            isExpanded: true,
-            decoration: const InputDecoration(
-              labelText: AppStrings.datasetLabel,
-            ),
-            items: [
-              for (final e in [
-                ...letters,
-                ...ref.read(vocabularyRepositoryProvider).phrases,
-              ])
-                DropdownMenuItem(
-                  value: e.filipino,
-                  child: Text('${e.filipino} (${e.english})',
-                      overflow: TextOverflow.ellipsis),
-                ),
-              // The special REST take: stored as `_rest` in the CSV.
-              const DropdownMenuItem(
-                value: restLabel,
-                child: Text(AppStrings.restLabelItem),
-              ),
-            ],
-            onChanged: (v) {
-              if (v != null) _selectLabel(v);
-            },
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _labelController,
-            decoration: const InputDecoration(
-              hintText: AppStrings.datasetLabelHint,
-              isDense: true,
+          Semantics(
+            liveRegion: true,
+            child: Text(
+              selected.isEmpty
+                  ? AppStrings.datasetSelectedNone
+                  : AppStrings.datasetSelected(_display(selected)),
+              key: const Key('selected-label'),
+              style: Theme.of(context).textTheme.titleMedium,
             ),
           ),
           const SizedBox(height: 12),
@@ -229,7 +275,7 @@ class _CollectScreenState extends ConsumerState<CollectScreen> {
                     if (ref.read(datasetRecorderControllerProvider).phase ==
                         RecordingPhase.recording) {
                       await recorder
-                          .startTake(_labelController.text);
+                          .startTake(selected);
                       // Light haptic on recording start (motion pass).
                       HapticFeedback.selectionClick();
                     }
@@ -255,7 +301,7 @@ class _CollectScreenState extends ConsumerState<CollectScreen> {
                 OutlinedButton.icon(
                   icon: const Icon(Icons.play_circle_outline),
                   label: const Text(AppStrings.datasetStartTake),
-                  onPressed: () => recorder.startTake(_labelController.text),
+                  onPressed: () => recorder.startTake(selected),
                 ),
               if (!state.takeActive && state.undoLabel.isNotEmpty)
                 TextButton.icon(
@@ -310,15 +356,34 @@ class _CollectScreenState extends ConsumerState<CollectScreen> {
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final label in [
-                for (final e in letters) e.filipino,
-                restLabel,
-              ])
-                _coverageChip(context, coverage, label),
+          _section(AppStrings.sectionLetters, initiallyExpanded: true, chips: [
+            for (final label in coverage.targetLabels(letters))
+              _coverageChip(context, coverage, label, locked: locked),
+          ]),
+          _section(
+            AppStrings.sectionStill,
+            hint: still.isEmpty ? AppStrings.sectionStillEmpty : null,
+            chips: [
+              for (final e in still)
+                _coverageChip(context, coverage, e.filipino,
+                    phrase: e, locked: locked),
+            ],
+          ),
+          _section(
+            AppStrings.sectionMovement,
+            hint: AppStrings.sectionMovementHint,
+            chips: [
+              for (final e in moving)
+                _coverageChip(context, coverage, e.filipino,
+                    phrase: e, locked: locked),
+            ],
+          ),
+          _section(
+            AppStrings.sectionErrors,
+            hint: AppStrings.sectionErrorsHint,
+            chips: [
+              for (final label in coverage.errorLabels(phrases))
+                _coverageChip(context, coverage, label, locked: locked),
             ],
           ),
           const SizedBox(height: 8),

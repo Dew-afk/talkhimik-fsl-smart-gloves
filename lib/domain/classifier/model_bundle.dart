@@ -11,6 +11,29 @@ class ModelClass {
   final int wordId;
 }
 
+/// One recorded movement: world-up directions (hand frame) to pass in order,
+/// each within [toleranceDeg].
+class MotionPath {
+  const MotionPath(this.points, this.toleranceDeg);
+
+  final List<List<double>> points;
+  final double toleranceDeg;
+
+  /// Null when [json] is not a usable path.
+  static MotionPath? parse(Object? json) {
+    if (json is! Map) return null;
+    final tol = json['tol_deg'];
+    final raw = json['points'];
+    if (tol is! num || raw is! List || raw.length < 2) return null;
+    final points = <List<double>>[];
+    for (final p in raw) {
+      if (p is! List || p.length != 3 || p.any((v) => v is! num)) return null;
+      points.add([for (final v in p) (v as num).toDouble()]);
+    }
+    return MotionPath(points, tol.toDouble());
+  }
+}
+
 /// Parsed labels.json — the model's metadata contract (C4).
 class LabelsSpec {
   const LabelsSpec({
@@ -24,6 +47,7 @@ class LabelsSpec {
     required this.restClass,
     required this.datasetHash,
     this.motionPitchSpan = const {},
+    this.motionPaths = const {},
   });
 
   final int version;
@@ -39,6 +63,10 @@ class LabelsSpec {
   /// Motion letters (labels.json `motion_labels`): label → the pitch change
   /// in degrees required before it may be emitted (see MotionGate).
   final Map<String, double> motionPitchSpan;
+
+  /// Moving labels → their recorded movements. Takes precedence over
+  /// [motionPitchSpan]; absent in models trained before it existed.
+  final Map<String, List<MotionPath>> motionPaths;
 
   /// One-line trained-on summary for the debug panel.
   String get trainedOnSummary =>
@@ -73,11 +101,18 @@ class LabelsSpec {
           ? (trainedOn['dataset_hash'] as String? ?? 'unknown')
           : 'unknown';
       final motion = <String, double>{};
+      final paths = <String, List<MotionPath>>{};
       final rawMotion = root['motion_labels'];
       if (rawMotion is Map<String, Object?>) {
         for (final e in rawMotion.entries) {
           final span = (e.value as Map?)?['pitch_span_deg'];
           if (span is num) motion[e.key] = span.toDouble();
+          final rawPaths = (e.value as Map?)?['paths'];
+          if (rawPaths is List) {
+            final parsed =
+                rawPaths.map(MotionPath.parse).whereType<MotionPath>().toList();
+            if (parsed.isNotEmpty) paths[e.key] = parsed;
+          }
         }
       }
       return LabelsSpec(
@@ -91,6 +126,7 @@ class LabelsSpec {
         restClass: root['rest_class'] as String? ?? '_rest',
         datasetHash: hash,
         motionPitchSpan: motion,
+        motionPaths: paths,
       );
     } catch (_) {
       return null;

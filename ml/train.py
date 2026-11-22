@@ -37,7 +37,6 @@ FSL_WORD_IDS = {
     "Magkano?": 116,
 }
 REST_WORD_ID = 0
-FIRST_PHRASE_ID = 100  # phrases are signed with movement
 
 HIDDEN = [32, 32]
 MAX_EPOCHS = 200
@@ -55,28 +54,144 @@ MOTION_WINDOW_MS = 1500     # the app looks back this far for the motion
 DEFAULT_MOTION_SPAN = 40.0  # only when no take has 2+ rows to measure
 
 
-def motion_gates(rows):
-    """Per motion label present: the pitch change (deg) the app must see
-    within MOTION_WINDOW_MS before emitting it. Midway between still takes
-    (letters and REST, not phrases, which move; 95th percentile span, so
-    one fidgety REST take cannot raise it) and
-    the motion label's smallest take span. Pitch, not roll (wraps at
-    +/-180) or yaw (drifts)."""
-    pitches = {}
+PATH_POINTS = 5        # checkpoints kept per recorded movement
+PATH_TOLERANCE = 0.4   # of the movement's size; < 0.5 so start != end
+MIN_PATH_ROWS = 3
+MOVING_SPREAD = 20.0   # deg: median take above this = moving label
+PATH_WINDOW_FRAMES = 40  # the app's 2 s look-back at 20 Hz (MotionGate)
+SPAN_WINDOW_FRAMES = 30  # its 1.5 s pitch-change look-back
+
+
+def _takes(rows):
+    takes = {}
     for r in rows:
-        pitches.setdefault((r["label"], r["session"], r["take"]),
-                           []).append(r["pitch"])
-    spans = {k: max(v) - min(v) for k, v in pitches.items() if len(v) >= 2}
+        takes.setdefault((r["label"], r["session"], r["take"]),
+                         []).append(r)
+    return takes
+
+
+def _up_path(take):
+    """World-up direction in the hand frame per row, (n, 3). Unlike roll it
+    does not wrap, and unlike yaw it does not drift."""
+    roll = np.radians([r["roll"] for r in take])
+    pitch = np.radians([r["pitch"] for r in take])
+    return np.stack([np.sin(pitch), np.cos(pitch) * np.sin(roll),
+                     np.cos(pitch) * np.cos(roll)], axis=1)
+
+
+def _spread(up):
+    """Largest angle (deg) between any two directions of the path."""
+    return float(np.degrees(np.arccos(np.clip(up @ up.T, -1, 1))).max())
+
+
+def moving_labels(rows):
+    """Labels whose typical take turns the hand, plus MOTION_LABELS."""
+    spreads = {}
+    for (label, _, _), take in _takes(rows).items():
+        if len(take) >= MIN_PATH_ROWS and label != REST_LABEL:
+            spreads.setdefault(label, []).append(_spread(_up_path(take)))
+    return ({r["label"] for r in rows} & MOTION_LABELS) | {
+        l for l, s in spreads.items() if np.median(s) >= MOVING_SPREAD}
+
+
+def motion_paths(rows):
+    """Per moving label, every recorded take as PATH_POINTS up-directions
+    plus a tolerance scaled to its size. The app emits the label only after
+    the hand passed all points of one take in order. Each take is kept (not
+    an average): one sign can be recorded in more than one orientation."""
+    moving = moving_labels(rows)
+    paths = {}
+    for (label, _, _), take in _takes(rows).items():
+        if label not in moving or len(take) < MIN_PATH_ROWS:
+            continue
+        up = _up_path(take)
+        # shortcut: rows are evenly spaced (5 Hz), upgrade if takes drop rows
+        at = np.linspace(0, len(up) - 1, PATH_POINTS)
+        pts = np.stack([np.interp(at, np.arange(len(up)), up[:, i])
+                        for i in range(3)], axis=1)
+        pts /= np.linalg.norm(pts, axis=1, keepdims=True)
+        size = _spread(pts)
+        if size < MOVING_SPREAD:
+            continue  # a take held still must not let a still hand pass
+        paths.setdefault(label, []).append({
+            "tol_deg": round(PATH_TOLERANCE * size, 1),
+            "points": [[round(float(v), 4) for v in p] for p in pts]})
+    return paths
+
+
+def motion_gates(rows):
+    """Per moving label: the pitch change (deg) that gates it when it has no
+    motion_paths, and in app versions that do not know them. Midway between
+    still takes (95th percentile span, so one fidgety REST take cannot raise
+    it) and the label's smallest take span. Pitch, not roll (wraps at
+    +/-180) or yaw (drifts)."""
+    moving_set = moving_labels(rows)
+    spans = {k: max(r["pitch"] for r in v) - min(r["pitch"] for r in v)
+             for k, v in _takes(rows).items() if len(v) >= 2}
     still = sorted(s for (l, _, _), s in spans.items()
-                   if l not in MOTION_LABELS
-                   and FSL_WORD_IDS.get(l, 0) < FIRST_PHRASE_ID)
+                   if l not in moving_set)
     still_hi = still[int(0.95 * (len(still) - 1))] if still else 0.0
     gates = {}
-    for label in sorted({r["label"] for r in rows} & MOTION_LABELS):
+    for label in sorted(moving_set):
         moving = [s for (l, _, _), s in spans.items() if l == label]
         gates[label] = (round((still_hi + min(moving)) / 2, 1) if moving
                         else DEFAULT_MOTION_SPAN)
     return gates
+
+
+def _spoken(take, predict, classes, variant, floor, gates, paths):
+    """Labels the app would speak for one take: 5 Hz rows resampled to its
+    20 Hz, then its rules (floor, REST, movement, 10 of 20 votes)."""
+    cols = INPUT_B
+    v = np.array([[r[c] for c in cols] for r in take], dtype=float)
+    v[:, 5] = np.degrees(np.unwrap(np.radians(v[:, 5])))
+    at = np.arange(-2, len(v) - 1 + 2 + 1e-9, 0.25)  # 0.4 s hold each side
+    v = np.stack([np.interp(at, np.arange(len(v)), v[:, i])
+                  for i in range(v.shape[1])], axis=1)
+    prob = predict(v[:, :len(VARIANTS[variant])].astype(np.float32))
+    up = _up_path([{"roll": x[5], "pitch": x[6]} for x in v])
+    votes, spoken = [], set()
+    for i in range(len(v)):
+        label = classes[int(prob[i].argmax())]
+        if prob[i].max() < floor or label == REST_LABEL:
+            label = None
+        elif paths.get(label):
+            seen = up[max(0, i - PATH_WINDOW_FRAMES):i + 1]
+            if not any(_followed(seen, p) for p in paths[label]):
+                label = None
+        elif label in gates:
+            seen = v[max(0, i - SPAN_WINDOW_FRAMES):i + 1, 6]
+            if seen.max() - seen.min() < gates[label]:
+                label = None
+        votes = (votes + [label])[-20:]
+        if label is not None and votes.count(label) >= 10:
+            spoken.add(label)
+    return spoken
+
+
+def _followed(up, path):
+    min_cos = np.cos(np.radians(path["tol_deg"]))
+    i = 0
+    for p in path["points"]:
+        hit = up[i:] @ np.array(p) >= min_cos
+        if not hit.any():
+            return False
+        i += int(hit.argmax())
+    return True
+
+
+def score_wrong_moves(rows, predict, classes, variant, floor, gates, paths):
+    """Per wrong-move label: takes, how many made the app speak the word
+    they imitate, and how many made it speak anything."""
+    out = {}
+    for (label, _, _), take in sorted(_takes(rows).items()):
+        spoken = _spoken(take, predict, classes, variant, floor, gates, paths)
+        word = label[len("_wrong_"):] if label.startswith("_wrong_") else None
+        s = out.setdefault(label, {"takes": 0, "same_word": 0, "any_word": 0})
+        s["takes"] += 1
+        s["same_word"] += word in spoken
+        s["any_word"] += bool(spoken)
+    return out
 
 
 # ---------------------------------------------------------------- model
@@ -356,7 +471,7 @@ def export_weights(model, mu, sigma, out_path, variant):
 
 
 def export_labels(out_path, hand, variant, classes, floor, metrics,
-                  trained_on, motion=None):
+                  trained_on, motion=None, paths=None):
     # The confusion matrix ships as CSV/PNG; keep labels.json JSON-safe.
     json_metrics = {k: v for k, v in metrics.items() if k != "confusion"}
     payload = {
@@ -373,7 +488,8 @@ def export_labels(out_path, hand, variant, classes, floor, metrics,
         "floor_precision_95": floor is not None,
         "rest_class": REST_LABEL,
         "motion_labels": {l: {"pitch_span_deg": v,
-                              "window_ms": MOTION_WINDOW_MS}
+                              "window_ms": MOTION_WINDOW_MS,
+                              "paths": (paths or {}).get(l, [])}
                           for l, v in (motion or {}).items()},
         "trained_on": trained_on,
         "metrics": json_metrics,
@@ -538,10 +654,18 @@ def main():
     export_weights(model, mu, sigma,
                    os.path.join(args.out, "weights.json"), variant)
     motion = motion_gates(hand_rows[canonical])
+    paths = motion_paths(hand_rows[canonical])
     loader_report["motion_gates_pitch_deg"] = motion
+    loader_report["motion_paths"] = {l: len(p) for l, p in paths.items()}
     export_labels(os.path.join(args.out, "labels.json"),
                   canonical, variant, model.classes, floor, metrics,
-                  trained_on, motion)
+                  trained_on, motion, paths)
+    wrong_rows = [r for r in load_dataset(args.input_dir, wrong_moves=True)[0]
+                  if r["hand"] == canonical]
+    wrong = score_wrong_moves(
+        wrong_rows, lambda X: model.predict_proba((X - mu) / sigma),
+        model.classes, variant, floor if floor is not None else 0.95,
+        motion, paths)
     write_confusion_csv(metrics["confusion"], metrics["classes"],
                         os.path.join(args.out, "confusion_matrix.csv"))
     write_confusion_png(metrics["confusion"], metrics["classes"],
@@ -549,7 +673,7 @@ def main():
 
     report = _report_text(args, loader_report, hands, train_hands,
                           canonical, variant, metrics, floor, floor_table,
-                          trained_on, signers)
+                          trained_on, signers, wrong)
     with open(os.path.join(args.out, "report.md"), "w",
               encoding="utf-8") as f:
         f.write(report)
@@ -576,7 +700,7 @@ def main():
 
 def _report_text(args, loader_report, hands, train_hands, canonical,
                  variant, metrics, floor, floor_table, trained_on,
-                 signers):
+                 signers, wrong):
     lines = ["# Training report — talkhimik letters (C3)", "",
              f"dataset: {args.input_dir}",
              f"hands in data: {hands} · hands trained: {train_hands}",
@@ -607,6 +731,18 @@ def _report_text(args, loader_report, hands, train_hands, canonical,
               "|---|---|---|"]
     lines += [f"| {t['threshold']} | {t['coverage_pct']} | "
               f"{t['precision']} |" for t in floor_table]
+    lines += ["", "## Wrong moves (spoken by mistake; never trained on)"]
+    if wrong:
+        lines += ["| wrong move | takes | spoke that word | spoke anything |",
+                  "|---|---|---|---|"]
+        lines += [f"| {l} | {w['takes']} | {w['same_word']} | "
+                  f"{w['any_word']} |" for l, w in wrong.items()]
+        takes = sum(w["takes"] for w in wrong.values())
+        false = sum(w["any_word"] for w in wrong.values())
+        lines.append(f"false positives: {false} of {takes} takes "
+                     f"({100 * false / takes:.0f} %)")
+    else:
+        lines.append("no wrong moves recorded - false positives UNTESTED")
     return "\n".join(lines) + "\n"
 
 

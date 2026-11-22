@@ -106,36 +106,82 @@ void main() {
     expect(find.textContaining('of 28 letters ready'), findsOneWidget);
   });
 
-  testWidgets('tapping a coverage chip preselects the label and the REST '
-      'chip stores `_rest`', (tester) async {
+  Finder selected(String label) => find.text(AppStrings.datasetSelected(label));
+
+  Future<void> open(WidgetTester tester, String section) async {
+    await tester.tap(find.text(section));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('tapping a bubble selects it for recording', (tester) async {
     useTallViewport(tester);
     await tester.pumpWidget(wrap());
     await tester.pumpAndSettle();
+    expect(find.text(AppStrings.datasetSelectedNone), findsOneWidget);
 
     await tester.tap(find.text('A · 0'));
     await tester.pumpAndSettle();
-    expect(find.widgetWithText(TextField, 'A'), findsOneWidget);
+    expect(selected('A'), findsOneWidget);
 
     await tester.tap(find.text('REST · 0'));
     await tester.pumpAndSettle();
-    expect(find.widgetWithText(TextField, '_rest'), findsOneWidget);
+    expect(selected('REST'), findsOneWidget);
   });
 
-  testWidgets('the REST picker item exists in the label dropdown',
+  testWidgets('phrases start under movement, each with an error bubble',
       (tester) async {
     useTallViewport(tester);
     await tester.pumpWidget(wrap());
     await tester.pumpAndSettle();
+    expect(find.text('Salamat · 0'), findsNothing); // collapsed
 
-    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await open(tester, AppStrings.sectionMovement);
+    expect(find.text('Kumusta · 0'), findsOneWidget);
+    expect(find.text('Magkano? · 0'), findsOneWidget);
+    await open(tester, AppStrings.sectionErrors);
+    expect(find.text('Wrong Kumusta · 0'), findsOneWidget);
+    expect(find.text('Random moves · 0'), findsOneWidget);
+
+    await tester.tap(find.text('Wrong Salamat · 0'));
     await tester.pumpAndSettle();
-    // The menu scrolls internally — REST is the last item.
-    await tester.scrollUntilVisible(
-      find.text(AppStrings.restLabelItem),
-      100,
-      scrollable: find.byType(Scrollable).last,
-    );
-    expect(find.text(AppStrings.restLabelItem), findsOneWidget);
+    expect(selected('Wrong Salamat'), findsOneWidget);
+  });
+
+  testWidgets('holding a phrase moves it to still and drops its error bubble',
+      (tester) async {
+    useTallViewport(tester);
+    await tester.pumpWidget(wrap());
+    await tester.pumpAndSettle();
+    await open(tester, AppStrings.sectionMovement);
+    await open(tester, AppStrings.sectionErrors);
+
+    await tester.longPress(find.text('Oo · 0'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(AppStrings.moveWordStill));
+    await tester.pumpAndSettle();
+
+    expect(settings.still, {'Oo'});
+    expect(find.text('Oo · 0'), findsNothing); // still section is collapsed
+    expect(find.text('Wrong Oo · 0'), findsNothing);
+    await open(tester, AppStrings.sectionStill);
+    expect(find.text('Oo · 0'), findsOneWidget);
+  });
+
+  testWidgets('the label cannot change while a take is running',
+      (tester) async {
+    useTallViewport(tester);
+    settings.participant = 'P-001';
+    settings.consent = true;
+    await tester.pumpWidget(wrap());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('A · 0'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(AppStrings.recordStart));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('B · 0'));
+    await tester.pumpAndSettle();
+    expect(selected('A'), findsOneWidget);
   });
 
   testWidgets('share-all is disabled with a reason when there is no data',

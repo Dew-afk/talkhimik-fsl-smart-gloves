@@ -254,7 +254,7 @@ class RecognitionController extends Notifier<RecognitionState> {
       return;
     }
 
-    _motion.add(now, frame.pitchDeg);
+    _motion.add(now, frame.pitchDeg, rollDeg: frame.rollDeg);
     final prediction = classifier.classifyFrame(frame);
     // Trained-model semantics: below the confidence floor or the REST
     // class counts as neutral (a release), never an emission (concept
@@ -266,9 +266,11 @@ class RecognitionController extends Notifier<RecognitionState> {
       final rest = classifier.restLabel;
       final belowFloor = floor != null && prediction.confidence < floor;
       final isRest = rest != null && prediction.label == rest;
-      // A motion letter (J) held still is not that letter: neutral.
+      // A moving sign without its movement is not that sign: neutral.
       final still = !_motion.allows(
-          prediction.label, bundle?.labels.motionPitchSpan ?? const {});
+          prediction.label,
+          bundle?.labels.motionPitchSpan ?? const {},
+          bundle?.labels.motionPaths ?? const {});
       stabilizerLabel =
           (belowFloor || isRest || still) ? null : prediction.label;
     }
@@ -286,6 +288,10 @@ class RecognitionController extends Notifier<RecognitionState> {
 
     final emitLabel = result.emitLabel;
     if (emitLabel == null) return;
+    // One movement, one emission: repeating the sign needs a new movement.
+    if (bundle?.labels.motionPaths.containsKey(emitLabel) ?? false) {
+      _motion.reset();
+    }
     final wordId = _wordIdByLabel[emitLabel];
     if (wordId == null) return;
     final confidence = (result.voteShare * (prediction?.confidence ?? 0) * 100)

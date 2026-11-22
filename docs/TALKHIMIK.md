@@ -523,14 +523,18 @@ telemetry (20 Hz) ── signing hand (Settings → Recognition)
   rows, hands, calibration ids, signers), rebuilt from the session CSVs
   when missing/corrupt and updated at take stop / session changes. The
   CSV/sidecar formats are untouched.
-- The Collect screen shows a coverage card: a chip grid of 28 letters +
-  REST with take counts and icon states — <5 takes "needs data",
+- The Collect screen shows a coverage card in four collapsible sections:
+  Letters (28 + REST), Words and phrases (still), Words and phrases
+  (movement), Error moves. Phrases start under movement; holding one moves it
+  (`settings.stillPhrases`). Every bubble shows take counts and icon states — <5 takes "needs data",
   5–9 "ok", ≥10 "good"; Z is marked "later" (dynamic, no motion gate
   yet). J counts like any letter (motion-gated, see the pipeline facts).
   Constants live in `lib/data/dataset/coverage_index.dart`. Tapping a
-  chip preselects that label for recording.
-- REST is a first-class take: picker item "REST — hand relaxed", stored
-  as label `_rest`.
+  bubble selects that label for recording (locked while a take runs).
+- REST is a first-class take, stored as label `_rest`.
+- Error moves: one per moving phrase (`_wrong_<phrase>`) plus shared
+  `_random`. The trainer never trains on them; `report.md` "Wrong moves"
+  lists how many takes made the app speak (false positives).
 - "Share all for training" exports every CSV + sidecar + the coverage
   index through the share sheet (multi-file, no zip).
 
@@ -549,12 +553,15 @@ telemetry (20 Hz) ── signing hand (Settings → Recognition)
 
 Pipeline facts: validation and every drop decision are reported
 (missing sidecar, cal mismatch, invalid-finger sessions, bad-quality
-rows, <5-take labels, Z skipped); **J and Salamat are motion-gated**: their handshape
-trains like any label, and `motion_gates()` writes `labels.json`
+rows, <5-take labels, Z skipped); **moving labels are motion-gated** (detected: the median
+take turns the hand ≥ 20°; J always): their handshape trains like any label, and `motion_gates()` writes `labels.json`
 `motion_labels: {"J": {"pitch_span_deg": x, "window_ms": 1500}}` with x
 midway between still takes (letters and REST, not phrases; 95th-percentile pitch span) and that sign's
 smallest take span. The app (`MotionGate`, recognition controller) emits it
-only while pitch changed ≥ x in the last 1.5 s; a still handshape is neutral.
+only after the hand, within 2 s, passed all 5 tilt directions of one recorded
+take in order (`paths`, tolerance 0.4 × the movement's size); models without
+`paths` need a pitch change ≥ x in the last 1.5 s. A still handshape is neutral.
+Tilt only: body height, straight slides and hand contact are not measured.
 Pitch, because roll wraps at ±180 and yaw drifts. A hand whose
 session split would leave train, val or test empty splits by take instead (report flags it optimistic); splits are grouped by SESSION
 (~70/15/15, per-label coverage — never random rows) with

@@ -7,7 +7,7 @@ a small letter model the app runs on-device (C4).
 
 ```
 Collect screen (app) --"Share all for training"--> folder/ (CSV + sidecar + index.json)
-load_dataset.py  ->  clean_dataset.csv  (validated, Z skipped, J/Salamat motion-gated, _rest kept)
+load_dataset.py  ->  clean_dataset.csv  (validated, Z skipped, moving labels motion-gated, _rest kept)
 train.py         ->  out/{weights.json, labels.json, report.md,
                           MODEL_CARD.md, confusion_matrix.csv/png,
                           talkhimik_letters.tflite(+_int8, with TF)}
@@ -40,9 +40,11 @@ Run the self-check (synthetic data, no real dataset needed):
 
 - **Loader** (`load_dataset.py`): pairs CSVs with sidecars, validates
   calibration ids and columns, excludes sessions with an invalid finger,
-  drops bad-quality rows, skips Z (dynamic, no gate yet), keeps J and
-  Salamat (the handshape trains; `labels.json` `motion_labels` holds the pitch
-  change the app requires before emitting them), keeps `_rest`,
+  drops bad-quality rows, skips Z (dynamic, no gate yet), keeps J
+  (the handshape trains; `labels.json` `motion_labels` holds the
+  movement the app requires before emitting any moving label), keeps `_rest`,
+  keeps wrong moves (`_wrong_<word>`, `_random`) out of training and
+  scores them in `report.md` (false positives),
   drops labels under 5 takes. Every decision lands in the report.
 - **Features**: angles (5, degrees 0–90) for variant A; angles + roll +
   pitch for variant B. Yaw is never used (gyro drift). Normalization is
