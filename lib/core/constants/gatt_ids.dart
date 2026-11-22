@@ -1,7 +1,7 @@
 /// GATT contract constants shared between the glove firmware (ESP32-S3,
 /// NimBLE) and this app.
 ///
-/// Live contract: the as-built firmware — `TALKHIMIK_Code_Reference.md` §5
+/// Live contract: the as-built firmware — `docs/TALKHIMIK.md` §1
 /// (`talkhimik-ble/firmware/glove-esp32/config.h`), mirrored by the web
 /// dashboard. The app consumes TELEMETRY / STATUS / CAL_INFO and writes
 /// COMMAND opcodes.

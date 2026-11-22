@@ -1,8 +1,8 @@
 <!--
   TALKHIMIK — single source of documentation (2026-10, post-merge).
   Absorbs: TALKHIMIK_App_System.md, TALKHIMIK_Master_Integration.md §2–§9,
-  ble-integration-checklist.md, and the thesis reference (thesis documents
-  are in docs/, see §11).
+  ble-integration-checklist.md, and the thesis reference (originals are
+  kept by the team, outside this repo).
 -->
 
 # TALKHIMIK — FSL Smart Glove System
@@ -404,12 +404,10 @@ seq-gap loss, trailing-second update rate, mismatch flag):
 
 ## 11. Thesis pointers
 
-The thesis-level narrative (architecture, phases, budget, ML pipeline) is in
-[`TALKHIMIK_System_Architecture.md`](TALKHIMIK_System_Architecture.md),
-[`TALKHIMIK_Code_Reference.md`](TALKHIMIK_Code_Reference.md) and
-[`TALKHIMIK_System_Concept.md`](TALKHIMIK_System_Concept.md). The firmware and
-web dashboard are in this repo: [`talkhimik-ble/`](../talkhimik-ble/README.md) (wiring, build steps,
-packet quickstart).
+The thesis-level narrative (architecture, phases, budget, ML pipeline) is kept
+by the team, outside this repo. The firmware and web dashboard are in
+[`talkhimik-ble/`](../talkhimik-ble/README.md) (wiring, build steps, packet
+quickstart).
 
 ---
 
