@@ -9,7 +9,9 @@ import '../../application/providers.dart';
 import '../../core/strings/app_strings.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/dataset/coverage_index.dart';
+import '../../domain/vocab/custom_word.dart';
 import '../../domain/vocab/vocab_entry.dart';
+import '../widgets/add_word_dialog.dart';
 import '../widgets/anim.dart';
 import '../widgets/header_band.dart';
 
@@ -43,27 +45,57 @@ class _CollectScreenState extends ConsumerState<CollectScreen> {
   }
 
   Future<void> _moveWord(VocabEntry e) async {
-    final still = await showDialog<bool>(
+    final custom = e.wordId >= CustomWord.firstId;
+    final choice = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
+        scrollable: true,
         title: Text(AppStrings.moveWordTitle(e.filipino, e.english)),
-        content: const Text(AppStrings.moveWordBody),
+        content: Text(custom
+            ? '${AppStrings.moveWordBody}\n\n${AppStrings.deleteWordNote}'
+            : AppStrings.moveWordBody),
         actions: [
+          if (custom)
+            TextButton(
+              onPressed: () => Navigator.pop(context, AppStrings.deleteWord),
+              child: const Text(AppStrings.deleteWord),
+            ),
           TextButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () => Navigator.pop(context, AppStrings.moveWordStill),
             child: const Text(AppStrings.moveWordStill),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(context, false),
+            onPressed: () =>
+                Navigator.pop(context, AppStrings.moveWordMovement),
             child: const Text(AppStrings.moveWordMovement),
           ),
         ],
       ),
     );
-    if (still == null) return;
+    if (choice == null || !mounted) return;
+    if (choice == AppStrings.deleteWord) {
+      setState(() => _selectedLabel = '');
+      await ref.read(customWordsProvider.notifier).remove(e.wordId);
+      return;
+    }
     await ref
         .read(coverageControllerProvider.notifier)
-        .setStill(e.filipino, still);
+        .setStill(e.filipino, choice == AppStrings.moveWordStill);
+  }
+
+  Future<void> _addWord() async {
+    final words = ref.read(customWordsProvider.notifier);
+    final word = await showDialog<NewWord>(
+      context: context,
+      builder: (context) => AddWordDialog(problemWith: words.problemWith),
+    );
+    if (word == null) return;
+    final label = await words.add(word.filipino, word.english);
+    if (!mounted) return;
+    await ref
+        .read(coverageControllerProvider.notifier)
+        .setStill(label, word.still);
+    if (mounted) _selectLabel(label);
   }
 
   /// One collapsible group of bubbles.
@@ -103,6 +135,9 @@ class _CollectScreenState extends ConsumerState<CollectScreen> {
     // The coverage index travels with the data so training can rebuild it.
     final dir = await ref.read(datasetDirectoryProvider);
     files.add(XFile('${dir.path}/${CoverageIndexStore.fileName}'));
+    final words = await ref.read(customWordsProvider.notifier).writeExport(
+        dir, ref.read(coverageControllerProvider).stillPhrases);
+    files.add(XFile(words.path));
     if (!mounted) return;
     await SharePlus.instance.share(ShareParams(files: files));
   }
@@ -193,7 +228,7 @@ class _CollectScreenState extends ConsumerState<CollectScreen> {
         onPressed: locked ? null : () => _selectLabel(label),
       ),
     );
-    return phrase == null
+    return phrase == null || locked
         ? chip
         : GestureDetector(onLongPress: () => _moveWord(phrase), child: chip);
   }
@@ -205,7 +240,7 @@ class _CollectScreenState extends ConsumerState<CollectScreen> {
     final coverage = ref.watch(coverageControllerProvider);
     final letters = ref.read(vocabularyRepositoryProvider).letters;
     final recording = state.phase == RecordingPhase.recording;
-    final phrases = ref.read(vocabularyRepositoryProvider).phrases;
+    final phrases = ref.watch(vocabularyRepositoryProvider).phrases;
     final still = [
       for (final e in phrases)
         if (coverage.stillPhrases.contains(e.filipino)) e,
@@ -385,6 +420,13 @@ class _CollectScreenState extends ConsumerState<CollectScreen> {
               for (final label in coverage.errorLabels(phrases))
                 _coverageChip(context, coverage, label, locked: locked),
             ],
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            key: const Key('add-word-button'),
+            icon: const Icon(Icons.add),
+            label: const Text(AppStrings.addWord),
+            onPressed: locked ? null : _addWord,
           ),
           const SizedBox(height: 8),
           Text(

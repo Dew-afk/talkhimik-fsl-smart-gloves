@@ -20,7 +20,7 @@ import zlib
 import numpy as np
 
 from load_dataset import (FINGERS, MOTION_LABELS, REST_LABEL, load_dataset,
-                          write_clean_csv)
+                          load_words, write_clean_csv)
 
 # FSL word_id contract — mirrors lib/domain/vocab/fsl_vocabulary.dart.
 # Changing ids in the app requires changing this table too.
@@ -57,6 +57,7 @@ DEFAULT_MOTION_SPAN = 40.0  # only when no take has 2+ rows to measure
 PATH_POINTS = 5        # checkpoints kept per recorded movement
 PATH_TOLERANCE = 0.4   # of the movement's size; < 0.5 so start != end
 MIN_PATH_ROWS = 3
+CONFLICT_SHARE = 0.2   # of a word's takes spoken as another word
 MOVING_SPREAD = 20.0   # deg: median take above this = moving label
 PATH_WINDOW_FRAMES = 40  # the app's 2 s look-back at 20 Hz (MotionGate)
 SPAN_WINDOW_FRAMES = 30  # its 1.5 s pitch-change look-back
@@ -384,6 +385,60 @@ def feature_matrix(rows, variant):
     return np.array([[r[c] for c in cols] for r in rows], dtype=np.float32)
 
 
+# ------------------------------------------------------------ conflicts
+
+def conflict_report(rows, variant, floor, seed=7):
+    """What the app would speak for every take, from models that did not
+    train on it. Returns ("session" | "take", {label: {takes, right, silent,
+    as: {other label: takes}}}). By session when every label was recorded in
+    two or more, else by take (one sitting: optimistic). REST is right when
+    silent."""
+    takes = _takes(rows)
+    sessions = {}
+    for label, session, _ in takes:
+        sessions.setdefault(label, set()).add(session)
+    by = ("session" if all(len(s) > 1 for s in sessions.values())
+          else "take")
+    fold, seen = {}, {}
+    for k in sorted(takes):  # spread each label's takes over 5 folds
+        fold[k] = seen.get(k[0], 0) % 5
+        seen[k[0]] = fold[k] + 1
+    tests = ([lambda k, s=s: k[1] == s for s in sorted(set().union(
+                 *sessions.values()))] if by == "session"
+             else [lambda k, f=f: fold[k] == f for f in range(5)])
+    classes = sorted(sessions)
+    out = {l: {"takes": 0, "right": 0, "silent": 0, "as": {}}
+           for l in classes}
+    for ti, is_test in enumerate(tests):
+        rest = [k for k in takes if not is_test(k)]
+        val = [k for k in rest if fold[k] == (ti + 1) % 5]
+        # Every label must stay in training: its only takes are not val.
+        left = {k[0] for k in rest if k not in val}
+        val = [k for k in val if k[0] in left] or rest
+        train_keys = [k for k in rest if val is rest or k not in val]
+        flat = lambda ks: [r for k in ks for r in takes[k]]
+        tr, va = flat(train_keys), flat(val)
+        model, mu, sigma = train_mlp(
+            feature_matrix(tr, variant), [r["label"] for r in tr], classes,
+            feature_matrix(va, variant), [r["label"] for r in va],
+            seed=seed, input_has_roll_pitch=(variant == "B"))
+        gates, paths = motion_gates(flat(rest)), motion_paths(flat(rest))
+        for k in takes:
+            if not is_test(k):
+                continue
+            spoken = _spoken(
+                takes[k], lambda X: model.predict_proba((X - mu) / sigma),
+                classes, variant, floor, gates, paths)
+            c = out[k[0]]
+            c["takes"] += 1
+            c["silent"] += not spoken
+            c["right"] += (not spoken if k[0] == REST_LABEL
+                           else spoken == {k[0]})
+            for o in spoken - {k[0]}:
+                c["as"][o] = c["as"].get(o, 0) + 1
+    return by, out
+
+
 # ------------------------------------------------------------- evaluate
 
 def evaluate(model, X, rows):
@@ -471,7 +526,7 @@ def export_weights(model, mu, sigma, out_path, variant):
 
 
 def export_labels(out_path, hand, variant, classes, floor, metrics,
-                  trained_on, motion=None, paths=None):
+                  trained_on, motion=None, paths=None, custom_ids=None):
     # The confusion matrix ships as CSV/PNG; keep labels.json JSON-safe.
     json_metrics = {k: v for k, v in metrics.items() if k != "confusion"}
     payload = {
@@ -482,7 +537,7 @@ def export_labels(out_path, hand, variant, classes, floor, metrics,
                        "variant": variant},
         "classes": [{"index": i, "label": c,
                      "word_id": REST_WORD_ID if c == REST_LABEL
-                     else FSL_WORD_IDS.get(c, 0)}
+                     else {**(custom_ids or {}), **FSL_WORD_IDS}.get(c, 0)}
                     for i, c in enumerate(classes)],
         "confidence_floor": floor if floor is not None else 0.95,
         "floor_precision_95": floor is not None,
@@ -655,17 +710,33 @@ def main():
                    os.path.join(args.out, "weights.json"), variant)
     motion = motion_gates(hand_rows[canonical])
     paths = motion_paths(hand_rows[canonical])
+    words = load_words(args.input_dir)
+    custom_ids = {w["label"]: w["word_id"] for w in words["words"]}
+    unknown = [c for c in model.classes if c != REST_LABEL
+               and c not in FSL_WORD_IDS and c not in custom_ids]
+    marked_still = sorted(set(words["still"]) & set(paths))
+    for key, labels, why in (
+            ("unknown_words", unknown,
+             "not in the app's word list, so never spoken"),
+            ("marked_still_but_moves", marked_still,
+             "marked still in the app, but the recordings move")):
+        if labels:
+            loader_report[key] = labels
+            print(f"WARNING: {', '.join(labels)}: {why}")
     loader_report["motion_gates_pitch_deg"] = motion
     loader_report["motion_paths"] = {l: len(p) for l, p in paths.items()}
     export_labels(os.path.join(args.out, "labels.json"),
                   canonical, variant, model.classes, floor, metrics,
-                  trained_on, motion, paths)
+                  trained_on, motion, paths, custom_ids)
     wrong_rows = [r for r in load_dataset(args.input_dir, wrong_moves=True)[0]
                   if r["hand"] == canonical]
     wrong = score_wrong_moves(
         wrong_rows, lambda X: model.predict_proba((X - mu) / sigma),
         model.classes, variant, floor if floor is not None else 0.95,
         motion, paths)
+    conflicts = conflict_report(
+        hand_rows[canonical], variant,
+        floor if floor is not None else 0.95, args.seed)
     write_confusion_csv(metrics["confusion"], metrics["classes"],
                         os.path.join(args.out, "confusion_matrix.csv"))
     write_confusion_png(metrics["confusion"], metrics["classes"],
@@ -673,7 +744,7 @@ def main():
 
     report = _report_text(args, loader_report, hands, train_hands,
                           canonical, variant, metrics, floor, floor_table,
-                          trained_on, signers, wrong)
+                          trained_on, signers, wrong, conflicts)
     with open(os.path.join(args.out, "report.md"), "w",
               encoding="utf-8") as f:
         f.write(report)
@@ -700,7 +771,7 @@ def main():
 
 def _report_text(args, loader_report, hands, train_hands, canonical,
                  variant, metrics, floor, floor_table, trained_on,
-                 signers, wrong):
+                 signers, wrong, conflicts):
     lines = ["# Training report — talkhimik letters (C3)", "",
              f"dataset: {args.input_dir}",
              f"hands in data: {hands} · hands trained: {train_hands}",
@@ -731,6 +802,24 @@ def _report_text(args, loader_report, hands, train_hands, canonical,
               "|---|---|---|"]
     lines += [f"| {t['threshold']} | {t['coverage_pct']} | "
               f"{t['precision']} |" for t in floor_table]
+    by, per_label = conflicts
+    lines += ["", f"## Per word, with the app's rules (unseen {by}s)",
+              "Takes from the same sitting are easier: OPTIMISTIC."
+              if by == "take" else "Every take is from a session the model "
+              "did not train on.", "",
+              "| word | takes | right | silent | spoken as another word |",
+              "|---|---|---|---|---|"]
+    for l, c in per_label.items():
+        others = ", ".join(f"{o} x{n}" for o, n in sorted(
+            c["as"].items(), key=lambda x: -x[1])) or "-"
+        lines.append(f"| {l} | {c['takes']} | {c['right']} | "
+                     f"{c['silent']} | {others} |")
+    pairs = [(l, o, n, c["takes"]) for l, c in per_label.items()
+             for o, n in c["as"].items() if n / c["takes"] >= CONFLICT_SHARE]
+    lines += ["", "## Conflicts (words the glove cannot tell apart)"]
+    lines += [f"- {l} is spoken as {o}: {n} of {t} takes"
+              for l, o, n, t in sorted(pairs, key=lambda p: -p[2] / p[3])
+              ] or ["none"]
     lines += ["", "## Wrong moves (spoken by mistake; never trained on)"]
     if wrong:
         lines += ["| wrong move | takes | spoke that word | spoke anything |",

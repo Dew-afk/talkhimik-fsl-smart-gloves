@@ -1,12 +1,19 @@
 import '../../domain/models/gesture_result.dart';
 import '../../domain/repositories/vocabulary_repository.dart';
+import '../../domain/vocab/custom_word.dart';
 import '../../domain/vocab/fsl_vocabulary.dart';
 import '../../domain/vocab/vocab_entry.dart';
 
-/// Vocabulary lookup over the const table in `fsl_vocabulary.dart`.
+/// Vocabulary lookup over the const table in `fsl_vocabulary.dart` plus the
+/// words added on the Record screen.
 class DefaultVocabularyRepository implements VocabularyRepository {
-  DefaultVocabularyRepository() : _byId = _index(fslVocabulary);
+  DefaultVocabularyRepository([this._custom = const []])
+      : _byId = _index([
+          ...fslVocabulary,
+          for (final w in _custom) w.entry,
+        ]);
 
+  final List<CustomWord> _custom;
   final Map<int, VocabEntry> _byId;
 
   static Map<int, VocabEntry> _index(List<VocabEntry> table) => {
@@ -21,8 +28,11 @@ class DefaultVocabularyRepository implements VocabularyRepository {
       fslVocabulary.where((e) => e.category == VocabCategory.letter).toList();
 
   @override
-  List<VocabEntry> get phrases =>
-      fslVocabulary.where((e) => e.category == VocabCategory.phrase).toList();
+  List<VocabEntry> get phrases => [
+        ...fslVocabulary.where((e) => e.category == VocabCategory.phrase),
+        for (final w in _custom)
+          if (!w.deleted) w.entry,
+      ];
 
   @override
   List<AlternativePrediction> fallbackAlternatives(int wordId) {

@@ -237,6 +237,20 @@ class AppStrings {
   static String moveWordTitle(String filipino, String english) =>
       '$filipino ($english)';
   static const moveWordBody = 'Which section does this word belong in?';
+  static const deleteWord = 'Delete word';
+  static const deleteWordNote =
+      'Deleting a word keeps its recordings. Add it again to bring it back.';
+  static const addWord = 'Add a word';
+  static const addWordFilipino = 'Filipino (spoken)';
+  static const addWordEnglish = 'English';
+  static const addWordNote =
+      'The glove recognizes a new word only after you record it and install '
+      'a newly trained model.';
+  static const addWordCancel = 'Cancel';
+  static const addWordConfirm = 'Add';
+  static const addWordBothTexts = 'Fill in both the Filipino and English.';
+  static const addWordUnderscore = 'A word cannot start with "_".';
+  static const addWordExists = 'This word is already in the list.';
   static const moveWordStill = 'Still';
   static const moveWordMovement = 'Movement';
   static const coverageLater = 'later';

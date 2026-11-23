@@ -10,7 +10,7 @@ class SavedPhrasesPanel extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final vocab = ref.read(vocabularyRepositoryProvider);
+    final vocab = ref.watch(vocabularyRepositoryProvider);
     final phrases = vocab.phrases;
     if (phrases.isEmpty) return const SizedBox.shrink();
 

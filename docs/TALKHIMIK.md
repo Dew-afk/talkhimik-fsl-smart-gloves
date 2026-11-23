@@ -131,6 +131,8 @@ answers 0x09–0x0B with error 2.
 through it. The phone-side recognizer (§13) drives the transcript today
 and PAUSES itself the moment a real label packet arrives (glove takes
 precedence, both paths feed the same transcript events).
+word_id ranges: 1–28 letters, 100+ built-in phrases; 1000+ is used only on the
+phone, for words added on the Record screen (the firmware never sends it).
 
 ---
 
@@ -535,8 +537,12 @@ telemetry (20 Hz) ── signing hand (Settings → Recognition)
 - Error moves: one per moving phrase (`_wrong_<phrase>`) plus shared
   `_random`. The trainer never trains on them; `report.md` "Wrong moves"
   lists how many takes made the app speak (false positives).
+- "Add a word" asks for Filipino, English and the section (still/movement).
+  Words live in `settings.customWords` (ids never reused; deleting hides the
+  word and keeps its recordings; adding it again restores it). They are spoken
+  only after recording, training and installing a new model.
 - "Share all for training" exports every CSV + sidecar + the coverage
-  index through the share sheet (multi-file, no zip).
+  index + `words.json` (custom word ids, still phrases) through the share sheet (multi-file, no zip).
 
 ## 15. Training pipeline (`ml/`, C3) — how to ship a new model
 

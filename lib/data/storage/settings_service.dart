@@ -50,6 +50,10 @@ abstract interface class SettingsService {
   /// Phrases shown under "still" on the Record screen (default: none).
   Future<Set<String>> stillPhrases();
   Future<void> setStillPhrases(Set<String> value);
+
+  /// Words added on the Record screen, one JSON object each.
+  Future<List<String>> customWords();
+  Future<void> setCustomWords(List<String> value);
 }
 
 /// shared_preferences implementation (Windows/web/Android all supported).
@@ -72,6 +76,7 @@ class SharedPrefsSettingsService implements SettingsService {
   static const _kSigningHand = 'settings.signingHand';
   static const _kPhoneRecognitionEnabled = 'settings.phoneRecognitionEnabled';
   static const _kStillPhrases = 'settings.stillPhrases';
+  static const _kCustomWords = 'settings.customWords';
 
   @override
   Future<String> outputLanguage() async =>
@@ -175,4 +180,12 @@ class SharedPrefsSettingsService implements SettingsService {
   @override
   Future<void> setStillPhrases(Set<String> value) =>
       _prefs.setStringList(_kStillPhrases, value.toList());
+
+  @override
+  Future<List<String>> customWords() async =>
+      await _prefs.getStringList(_kCustomWords) ?? const [];
+
+  @override
+  Future<void> setCustomWords(List<String> value) =>
+      _prefs.setStringList(_kCustomWords, value);
 }

@@ -44,7 +44,8 @@ Run the self-check (synthetic data, no real dataset needed):
   (the handshape trains; `labels.json` `motion_labels` holds the
   movement the app requires before emitting any moving label), keeps `_rest`,
   keeps wrong moves (`_wrong_<word>`, `_random`) out of training and
-  scores them in `report.md` (false positives),
+  scores them in `report.md` (false positives), reads custom word ids from
+  `words.json` (skips deleted words),
   drops labels under 5 takes. Every decision lands in the report.
 - **Features**: angles (5, degrees 0–90) for variant A; angles + roll +
   pitch for variant B. Yaw is never used (gyro drift). Normalization is
@@ -60,6 +61,9 @@ Run the self-check (synthetic data, no real dataset needed):
   confusion matrix (CSV + PNG), variant A-vs-B comparison, and a
   confidence-floor recommendation (lowest threshold where held-out
   precision ≥ 95 %, with the coverage trade-off table).
+- **Conflicts**: what the app would speak for every take, from models that
+  did not train on it (by session when every word has two or more, else by
+  take); pairs mixed up in 20 % of takes or more are listed.
 - **Exports**: `weights.json` (MLP weights, normalization baked — the C4
   Dart fallback reads exactly this), `labels.json` (input spec, class →
   word_id map, confidence floor, trained-on summary, metrics),

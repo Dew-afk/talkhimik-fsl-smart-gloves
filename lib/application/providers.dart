@@ -20,8 +20,10 @@ import '../domain/classifier/model_bundle.dart';
 import '../domain/models/telemetry_packet.dart';
 import '../domain/repositories/log_store.dart';
 import '../domain/repositories/vocabulary_repository.dart';
+import '../domain/vocab/custom_word.dart';
 import 'calibration_controller.dart';
 import 'coverage_controller.dart';
+import 'custom_words_controller.dart';
 import 'dataset_recorder_controller.dart';
 import 'export_controller.dart';
 import 'glove_controller.dart';
@@ -36,8 +38,12 @@ import 'tts_controller.dart';
 /// Layer rule: ui → application → domain ← data.
 
 final vocabularyRepositoryProvider = Provider<VocabularyRepository>(
-  (ref) => DefaultVocabularyRepository(),
+  (ref) => DefaultVocabularyRepository(ref.watch(customWordsProvider)),
 );
+
+final customWordsProvider =
+    NotifierProvider<CustomWordsController, List<CustomWord>>(
+        CustomWordsController.new);
 
 final settingsServiceProvider = Provider<SettingsService>(
   (ref) => SharedPrefsSettingsService(),

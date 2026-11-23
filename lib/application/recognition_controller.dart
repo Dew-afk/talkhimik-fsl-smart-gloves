@@ -136,7 +136,6 @@ class RecognitionController extends Notifier<RecognitionState> {
   final MotionGate _motion = MotionGate();
   final ClassifierFactory _factory = const ClassifierFactory();
   final Map<GloveHand, (ModelBundle?, GestureClassifier)> _classifiers = {};
-  Map<String, int> _wordIdByLabel = const {};
   bool _userEnabled = true; // Developer toggle, default ON
 
   @override
@@ -158,11 +157,6 @@ class RecognitionController extends Notifier<RecognitionState> {
       }
     });
     if (mock) _stabilizer.reset();
-    final vocab = ref.read(vocabularyRepositoryProvider);
-    _wordIdByLabel = {
-      for (final e in [...vocab.letters, ...vocab.phrases])
-        e.filipino: e.wordId,
-    };
     return RecognitionState(
       classifier: RecognitionConstants.thresholdSource,
       modelVersion: RecognitionConstants.thresholdModelVersion,
@@ -292,7 +286,12 @@ class RecognitionController extends Notifier<RecognitionState> {
     if (bundle?.labels.motionPaths.containsKey(emitLabel) ?? false) {
       _motion.reset();
     }
-    final wordId = _wordIdByLabel[emitLabel];
+    // Read now, not at build: words can be added while the app runs.
+    final vocab = ref.read(vocabularyRepositoryProvider);
+    final wordId = [...vocab.letters, ...vocab.phrases]
+        .where((e) => e.filipino == emitLabel)
+        .firstOrNull
+        ?.wordId;
     if (wordId == null) return;
     final confidence = (result.voteShare * (prediction?.confidence ?? 0) * 100)
         .round()

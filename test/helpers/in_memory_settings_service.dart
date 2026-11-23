@@ -74,4 +74,10 @@ class InMemorySettingsService implements SettingsService {
   Future<Set<String>> stillPhrases() async => still;
   @override
   Future<void> setStillPhrases(Set<String> value) async => still = value;
+
+  List<String> words = [];
+  @override
+  Future<List<String>> customWords() async => words;
+  @override
+  Future<void> setCustomWords(List<String> value) async => words = value;
 }

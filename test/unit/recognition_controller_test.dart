@@ -351,6 +351,24 @@ void main() {
     expect(tts.spoken, contains('Salamat'));
   });
 
+  test('C4: a word added after start is emitted and spoken', () async {
+    final (c, left, _, _, _, tts) =
+        makeContainer(bundle: testBundle(label: 'Kain'));
+    c.read(transcriptControllerProvider);
+    await pump(c);
+    await pump(c);
+    await c.read(customWordsProvider.notifier).add('Kain', 'Eat');
+
+    left.emitStatus(const DeviceStatusPacket(uncalibrated: false));
+    for (var i = 0; i < 25; i++) {
+      left.emitTelemetry(fistFrame(i));
+      await pump(c);
+    }
+
+    expect(c.read(transcriptControllerProvider).entries.single.wordId, 1000);
+    expect(tts.spoken, contains('Kain'));
+  });
+
   test('C4: below the confidence floor nothing is emitted (counts as a '
       'release, never a guess)', () async {
     final (c, left, _, _, _, _) =

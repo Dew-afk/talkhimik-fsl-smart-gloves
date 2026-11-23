@@ -189,6 +189,43 @@ def main():
                              encoding="utf-8").read()
         assert "| _wrong_A | 1 | 1 | 1 |" in sparse_report  # held like an A
 
+        # --- conflict report: look-alikes are named, others are not ----
+        rng = np.random.default_rng(3)
+        alike = []
+        for label, cluster in (("Oo", "V"), ("Hindi", "V"), ("B", "B"),
+                               (REST_LABEL, REST_LABEL)):
+            for t in range(10):
+                for _ in range(4):
+                    angles = np.clip(
+                        rng.normal(synth.CLUSTERS[cluster], 3), 0, 90)
+                    alike.append(dict(
+                        zip(INPUT_A, map(float, angles)), label=label,
+                        session=f"S{t % 2}", take=t, roll=0.0, pitch=0.0))
+        by, per = train.conflict_report(alike, "A", 0.5)
+        assert by == "session"
+        assert per["B"]["right"] == 10 and not per["B"]["as"], per
+        assert per[REST_LABEL]["right"] == 10, per
+        mixed = (per["Oo"]["as"].get("Hindi", 0)
+                 + per["Hindi"]["as"].get("Oo", 0))
+        assert mixed + per["Oo"]["silent"] + per["Hindi"]["silent"] >= 5, per
+        one = [dict(r, session="S0") for r in alike]
+        assert train.conflict_report(one, "A", 0.5)[0] == "take"
+
+        # --- words.json: custom ids, deleted words, still-but-moving ---
+        with open(os.path.join(sparse, "words.json"), "w",
+                  encoding="utf-8") as f:
+            json.dump({"words": [
+                {"word_id": 1000, "label": "Salamat", "deleted": True},
+                {"word_id": 1001, "label": "Kain", "deleted": False}],
+                "still": []}, f)
+        kept, kept_report = load_dataset.load_dataset(sparse)
+        assert {r["label"] for r in kept} == {"A", "B"}
+        assert kept_report["deleted_words_skipped"] == ["Salamat"]
+        custom = export_labels(
+            os.path.join(tmp, "custom.json"), "L", "A", ["A", "Kain"], 0.5,
+            {}, {}, custom_ids={"Kain": 1001, "A": 9})
+        assert [c["word_id"] for c in custom["classes"]] == [1, 1001]
+
         # --- word ids mirror the app vocabulary -----------------------
         vocab = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                              "..", "lib", "domain", "vocab",

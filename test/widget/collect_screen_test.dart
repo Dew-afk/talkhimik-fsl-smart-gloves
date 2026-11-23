@@ -167,6 +167,60 @@ void main() {
     expect(find.text('Oo · 0'), findsOneWidget);
   });
 
+  testWidgets('a word can be added to a section, then deleted',
+      (tester) async {
+    useTallViewport(tester);
+    await tester.pumpWidget(wrap());
+    await tester.pumpAndSettle();
+    await open(tester, AppStrings.sectionMovement);
+    await open(tester, AppStrings.sectionErrors);
+
+    await tester.tap(find.byKey(const Key('add-word-button')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const Key('add-word-filipino')), 'Salamat');
+    await tester.enterText(
+        find.byKey(const Key('add-word-english')), 'Thanks');
+    await tester.tap(find.byKey(const Key('add-word-confirm')));
+    await tester.pumpAndSettle();
+    expect(find.text(AppStrings.addWordExists), findsOneWidget);
+
+    await tester.enterText(find.byKey(const Key('add-word-filipino')), 'Kain');
+    await tester.tap(find.byKey(const Key('add-word-confirm')));
+    await tester.pumpAndSettle();
+    expect(selected('Kain'), findsOneWidget);
+    expect(find.text('Kain · 0'), findsOneWidget);
+    expect(find.text('Wrong Kain · 0'), findsOneWidget);
+
+    await tester.longPress(find.text('Kain · 0'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(AppStrings.deleteWord));
+    await tester.pumpAndSettle();
+    expect(find.text('Kain · 0'), findsNothing);
+    expect(find.text('Wrong Kain · 0'), findsNothing);
+    expect(find.text(AppStrings.datasetSelectedNone), findsOneWidget);
+  });
+
+  testWidgets('a word added as still has no error bubble', (tester) async {
+    useTallViewport(tester);
+    await tester.pumpWidget(wrap());
+    await tester.pumpAndSettle();
+    await open(tester, AppStrings.sectionErrors);
+    await tester.tap(find.byKey(const Key('add-word-button')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('add-word-filipino')), 'Kain');
+    await tester.enterText(find.byKey(const Key('add-word-english')), 'Eat');
+    await tester.tap(find.text(AppStrings.moveWordStill));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('add-word-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(settings.still, {'Kain'});
+    expect(find.text('Wrong Kain · 0'), findsNothing);
+    await open(tester, AppStrings.sectionStill);
+    expect(find.text('Kain · 0'), findsOneWidget);
+  });
+
   testWidgets('the label cannot change while a take is running',
       (tester) async {
     useTallViewport(tester);

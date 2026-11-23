@@ -48,6 +48,16 @@ def _sidecar_for(csv_path):
     return base + "_sidecar.json"
 
 
+def load_words(input_dir):
+    """words.json from the app's Share all: custom word ids and the phrases
+    the user marked as still. Absent in older exports."""
+    path = os.path.join(input_dir, "words.json")
+    if not os.path.exists(path):
+        return {"words": [], "still": []}
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
 def is_wrong_move(label):
     return label.startswith("_") and label != REST_LABEL
 
@@ -62,6 +72,10 @@ def load_dataset(input_dir, wrong_moves=False):
         "bad_quality_rows_dropped": 0, "labels_skipped": sorted(SKIP_LABELS),
         "low_take_labels_dropped": {}, "rows_total": 0,
     }
+    deleted = {w["label"] for w in load_words(input_dir)["words"]
+               if w.get("deleted")}
+    if deleted:
+        report["deleted_words_skipped"] = sorted(deleted)
     rows = []
     for name in sorted(os.listdir(input_dir)):
         if not name.endswith(".csv") or name.endswith("index.json"):
@@ -110,6 +124,8 @@ def load_dataset(input_dir, wrong_moves=False):
             if label in SKIP_LABELS:
                 continue  # skipped silently per-spec, counted as labels_skipped
             if not label or is_wrong_move(label) != wrong_moves:
+                continue
+            if label.removeprefix("_wrong_") in deleted:
                 continue
             # Bad quality flag: a valid-finger bit cleared -> glitch row.
             quality = int(r.get("quality_flag", "0") or "0", 0)
