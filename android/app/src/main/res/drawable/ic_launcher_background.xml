@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Talkhimik launcher background: navy field with the brand's 45° azure/sky corner slab. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="#01579B" android:pathData="M0,0 H108 V108 H0 Z" />
+    <path android:fillColor="#29B6F6" android:pathData="M108,38 L108,108 L38,108 Z" />
+    <path android:fillColor="#54C5F8" android:pathData="M108,58 L108,108 L58,108 Z" />
+</vector>

@@ -132,19 +132,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                   Expanded(
                                     child: HandView(
                                       compact: true,
-                                      target: HandPose(
-                                        fingerDeg: [
-                                          for (var i = 0; i < 5; i++)
-                                            (live.left.telemetry
-                                                        ?.angles[i] ??
-                                                    0)
-                                                .toDouble(),
-                                        ],
-                                        handedness: GloveHand.left,
-                                        invalidMask:
-                                            live.left.telemetry?.validMask ??
-                                                0,
-                                      ),
+                                      target: HandPose.fromTelemetry(
+                                          live.left.telemetry, GloveHand.left,
+                                          weakMask:
+                                              live.left.calInfo?.weakMask ?? 0),
                                       stale:
                                           live.left.isStaleAt(DateTime.now()),
                                       uncalibrated: live.left.uncalibrated,
@@ -153,20 +144,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                                   Expanded(
                                     child: HandView(
                                       compact: true,
-                                      target: HandPose(
-                                        fingerDeg: [
-                                          for (var i = 0; i < 5; i++)
-                                            (live.right.telemetry
-                                                        ?.angles[i] ??
-                                                    0)
-                                                .toDouble(),
-                                        ],
-                                        handedness: GloveHand.right,
-                                        invalidMask:
-                                            live.right.telemetry
-                                                    ?.validMask ??
-                                                0,
-                                      ),
+                                      target: HandPose.fromTelemetry(
+                                          live.right.telemetry,
+                                          GloveHand.right,
+                                          weakMask:
+                                              live.right.calInfo?.weakMask ??
+                                                  0),
                                       stale: live.right
                                           .isStaleAt(DateTime.now()),
                                       uncalibrated:

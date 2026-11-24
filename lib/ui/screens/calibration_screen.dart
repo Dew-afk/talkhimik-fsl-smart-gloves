@@ -13,6 +13,7 @@ import '../../data/glove/glove_connection.dart';
 import '../../domain/models/calibration_table.dart';
 import '../../domain/models/telemetry_packet.dart';
 import '../widgets/anim.dart';
+import '../widgets/hand_view.dart';
 import '../widgets/header_band.dart';
 
 /// Firmware-driven 10-step calibration wizard (master §4). The step shown
@@ -166,6 +167,24 @@ class _MountCard extends ConsumerWidget {
                 ? AppStrings.mountStatusDefault
                 : AppStrings.mountStatusDone,
             style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+        Center(
+          child: _LiveGuideHand(
+            hand: hand,
+            compact: true,
+            // Ghost of the next pose: Pose 2 once Pose 1 reported success
+            // (the controller exposes that only through its message).
+            ghost: (live) => HandPose(
+              fingerDeg: const [0, 0, 0, 0, 0],
+              pitchDeg: mine &&
+                      mount.succeeded &&
+                      mount.message == AppStrings.mountPose1Ok
+                  ? 90
+                  : 0,
+              yawDeg: live.yawDeg,
+              handedness: hand,
+            ),
+          ),
+        ),
         step(AppCommand.calibrateGyro, AppStrings.mountGyroButton,
             AppStrings.mountGyroHint),
         step(AppCommand.captureMountPose1, AppStrings.mountPose1Button,
@@ -397,7 +416,52 @@ class _Running extends ConsumerWidget {
           onPressed: controller.cancel,
           child: const Text(AppStrings.calibrationAbort),
         ),
+        const SizedBox(height: 16),
+        // Live hand for the glove being calibrated: the current finger is
+        // highlighted and its target (flat / 90°) shows as a ghost. Below
+        // the actions so Capture/Cancel keep their place.
+        _LiveGuideHand(
+          hand: state.hand,
+          highlightFinger: state.step == 0 ? null : state.fingerIndex,
+          ghost: state.step == 0
+              ? null
+              : (live) => live.withFinger(
+                  state.fingerIndex, state.isFlatStep ? 0 : 90),
+        ),
       ],
+    );
+  }
+}
+
+/// Read-only 3D hand following one glove's live telemetry, with an
+/// optional target ghost built from the live pose.
+class _LiveGuideHand extends ConsumerWidget {
+  const _LiveGuideHand({
+    required this.hand,
+    this.ghost,
+    this.highlightFinger,
+    this.compact = false,
+  });
+
+  final GloveHand hand;
+  final HandPose Function(HandPose live)? ghost;
+  final int? highlightFinger;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final live =
+        ref.watch(liveControllerProvider.select((l) => l.forHand(hand)));
+    final pose = HandPose.fromTelemetry(live.telemetry, hand,
+        weakMask: live.calInfo?.weakMask ?? 0);
+    return HandView(
+      key: Key('guide-hand-${hand.name}'),
+      target: pose,
+      ghost: ghost?.call(pose),
+      highlightFinger: highlightFinger,
+      compact: compact,
+      stale: live.isStaleAt(DateTime.now()),
+      uncalibrated: live.uncalibrated,
     );
   }
 }

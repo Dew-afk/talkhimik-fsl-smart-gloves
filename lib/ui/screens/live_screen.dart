@@ -142,17 +142,8 @@ class _HandPanel extends ConsumerWidget {
                 child: IgnorePointer(child: SlabBackdrop(variant: 1)),
               ),
               HandView(
-                target: HandPose(
-                  fingerDeg: [
-                    for (var i = 0; i < 5; i++)
-                      (t?.angles[i] ?? 0).toDouble(),
-                  ],
-                  rollDeg: t?.rollDeg ?? 0,
-                  pitchDeg: t?.pitchDeg ?? 0,
-                  yawDeg: t?.yawDeg ?? 0,
-                  handedness: hand.hand,
-                  invalidMask: t?.validMask ?? 0,
-                ),
+                target:
+                    HandPose.fromTelemetry(t, hand.hand, weakMask: weakMask),
                 title: hand.hand == GloveHand.left
                     ? AppStrings.leftHandTitle
                     : AppStrings.rightHandTitle,

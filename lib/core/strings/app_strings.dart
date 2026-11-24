@@ -81,6 +81,16 @@ class AppStrings {
   static const rightHandLabel = 'R';
   static const leftHandTitle = 'Left hand';
   static const rightHandTitle = 'Right hand';
+  static const handResetView = 'Reset view';
+  static String handPoseSemantics(
+          {required bool left,
+          required List<int> fingers,
+          required int roll,
+          required int pitch}) =>
+      '${left ? leftHandTitle : rightHandTitle}, 3D view. '
+      'Thumb ${fingers[0]}°, pointer ${fingers[1]}°, middle ${fingers[2]}°, '
+      'ring ${fingers[3]}°, pinky ${fingers[4]}°. '
+      'Roll $roll°, pitch $pitch°. Drag to turn.';
   static const freshness = 'Freshness';
   static const stale = 'Stale';
   static const packetLoss = 'Packet loss';
