@@ -8,15 +8,14 @@ USB-serial) are superseded.
 ## Folder layout
 
 ```
-talkhimik-ble/
-├── firmware/
-│   └── glove-esp32/          # Arduino sketch — flash per hand
-│       ├── config.h          # ALL pins, UUIDs, packet layouts, timing
-│       ├── glove-esp32.ino   # setup/loop, packet builders, command handling
-│       ├── flex.h / .cpp     # ADC reads (divider -> resistance)
-│       ├── imu.h / .cpp      # MPU-6050/6500: R_MOUNT, gyro bias, fused roll/pitch/yaw
-│       ├── calibration.h/.cpp# flat/90 state machine + NVS persistence
-│       └── ble_link.h/.cpp   # NimBLE GATT server (TELEMETRY/COMMAND/STATUS)
+firmware/
+├── glove-esp32/              # Arduino sketch — flash per hand
+│   ├── config.h              # ALL pins, UUIDs, packet layouts, timing
+│   ├── glove-esp32.ino       # setup/loop, packet builders, command handling
+│   ├── flex.h / .cpp         # ADC reads (divider -> resistance)
+│   ├── imu.h / .cpp          # MPU-6050/6500: R_MOUNT, gyro bias, fused roll/pitch/yaw
+│   ├── calibration.h/.cpp    # flat/90 state machine + NVS persistence
+│   └── ble_link.h/.cpp       # NimBLE GATT server (TELEMETRY/COMMAND/STATUS)
 ├── web/
 │   └── index.html            # dashboard — open in Chrome/Edge
 └── README.md

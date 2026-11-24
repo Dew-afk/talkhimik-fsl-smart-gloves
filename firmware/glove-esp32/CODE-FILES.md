@@ -1,7 +1,7 @@
 # glove-esp32 — firmware file map
 
 Board: **Seeed XIAO ESP32S3** (one per hand) · Build: **Arduino IDE**
-Folder: `talkhimik-ble/firmware/glove-esp32/`
+Folder: `firmware/glove-esp32/`
 Last updated: 2026-11-08
 
 ## Current pin map (`config.h`, PIN_MAP_VERSION 3)
