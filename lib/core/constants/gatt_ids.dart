@@ -2,7 +2,7 @@
 /// NimBLE) and this app.
 ///
 /// Live contract: the as-built firmware — `docs/TALKHIMIK.md` §1
-/// (`firmware/glove-esp32/config.h`), mirrored by the web
+/// (`firmware/glove-left/config.h`, same in glove-right), mirrored by the web
 /// dashboard. The app consumes TELEMETRY / STATUS / CAL_INFO and writes
 /// COMMAND opcodes.
 ///

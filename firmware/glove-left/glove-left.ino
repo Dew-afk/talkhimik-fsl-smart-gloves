@@ -11,7 +11,7 @@
  *   - COMMAND:   write / write-without-response (calibration, rate, hand, ...)
  * Serial is used for debug logs only — the data path is BLE.
  *
- * NOTE: named glove-esp32.ino (not main.ino) because the Arduino build system
+ * NOTE: named after its folder, glove-left / glove-right (not main.ino), because the Arduino build system
  * requires the .ino file name to match its folder name.
  */
 #include <Arduino.h>
@@ -113,7 +113,9 @@ void applyCommand(const BleCommand& c) {
       imuZeroYaw();
       break;
     case CMD_SET_HAND:
-      if (c.len >= 1) bleSetHand(c.payload[0]);
+      // The hand is fixed by this build (hand.h); flash the other folder to
+      // change it. A stored NVS "hand" from fw <= 1.3.0 is ignored.
+      if (c.len < 1 || (c.payload[0] & 0x01) != bleGetHand()) err = ERR_UNKNOWN_CMD;
       break;
     case CMD_VIBRATE:
       if (c.len >= 2) {
@@ -172,7 +174,7 @@ void setup() {
 
   flexBegin();
   calibrationLoad();
-  bleBegin();               // loads the NVS hand setting
+  bleBegin();               // advertises TALKHIMIK-L / -R from hand.h
   imuBegin(bleGetHand());   // per-hand R_MOUNT; gyro bias blocks ~2 s (keep the glove still)
   calibrationSendInfo();    // push the current profile so CAL_INFO reads are fresh
 

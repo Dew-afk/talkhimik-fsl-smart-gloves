@@ -26,5 +26,4 @@ bool bleNotifyStatus(const uint8_t* data, size_t len);
 bool bleNotifyCalInfo(const uint8_t* data, size_t len);   // CAL_INFO read+notify
 
 uint8_t bleGetHand();
-void bleSetHand(uint8_t h);   // updates NVS + the telemetry hand byte
 String bleDeviceName();       // "TALKHIMIK-L" / "TALKHIMIK-R"

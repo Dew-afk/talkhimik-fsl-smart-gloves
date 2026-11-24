@@ -6,11 +6,9 @@
 #include <stdint.h>
 
 // ---- Hand identity ---------------------------------------------------------
-// 0 = left ("TALKHIMIK-L"), 1 = right ("TALKHIMIK-R"). This is the build-time
-// default; the COMMAND 0x07 (SET_HAND) override is stored in NVS, wins at
-// boot, and takes effect on the next reboot (the advertised name is set once
-// at boot).
-#define HAND_DEFAULT 0
+// HAND (0 = left, 1 = right) and this glove's R_DIV[5] live in hand.h, the
+// one file that differs between glove-left/ and glove-right/.
+#include "hand.h"
 
 // ---- Pin map (XIAO label -> GPIO) ------------------------------------------
 // Flex dividers: 3.3 V -> sensor -> ADC pin -> 10 kOhm -> GND. All flex pins
@@ -46,12 +44,7 @@
 static const uint8_t FLEX_PINS[5] = {PIN_FLEX_THUMB, PIN_FLEX_POINTER,
                                      PIN_FLEX_MIDDLE, PIN_FLEX_RING, PIN_FLEX_PINKY};
 static const char* FLEX_NAMES[5] = {"thumb", "pointer", "middle", "ring", "pinky"};
-// Per-channel divider resistors — the ONE place to edit the divider value.
-// Enter each resistor's multimeter-measured value (10k parts are typically
-// 9.8-10.2k and the ohms math, boot log, and NVS calibration signature all
-// use these numbers). Changing a value invalidates the saved calibration.
-static const float R_DIV[5] = {10000.0f, 10000.0f, 10000.0f, 10000.0f, 10000.0f};
-//                              thumb     pointer   middle    ring      pinky
+// Per-channel divider resistors: R_DIV[5] in hand.h (per glove).
 
 // ---- BLE --------------------------------------------------------------------
 #define DEVICE_NAME_PREFIX "TALKHIMIK"
@@ -61,7 +54,7 @@ static const float R_DIV[5] = {10000.0f, 10000.0f, 10000.0f, 10000.0f, 10000.0f}
 #define COMMAND_CHAR_UUID   "3f8d2a6b-9c4e-4d7f-a1e3-6b5c8d0e2f49"
 #define STATUS_CHAR_UUID    "c2b6e8d4-1a7f-4c3e-9d5b-0f2a6e8c4d73"
 #define CAL_INFO_CHAR_UUID  "a1f2c3d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d"   // read + notify
-#define FW_VERSION "1.3.0"        // sent in CAL_INFO + printed at boot
+#define FW_VERSION "1.3.1"        // sent in CAL_INFO + printed at boot
 
 // ---- Timing ------------------------------------------------------------------
 #define TELEMETRY_RATE_MS   50   // default notify period (SET_RATE 0x05 overrides)
@@ -78,7 +71,7 @@ enum CmdOpcode : uint8_t {
   CMD_CANCEL_CALIBRATION = 0x04,  // no payload
   CMD_SET_RATE           = 0x05,  // u16 LE milliseconds (clamped 20..1000)
   CMD_ZERO_YAW           = 0x06,  // no payload
-  CMD_SET_HAND           = 0x07,  // u8 hand (0=L, 1=R) — saved to NVS
+  CMD_SET_HAND           = 0x07,  // fw 1.3.1: hand is fixed by the build (hand.h); other hand -> ERR_UNKNOWN_CMD
   CMD_VIBRATE            = 0x08,  // u16 LE milliseconds
   CMD_CAPTURE_MOUNT_POSE1 = 0x09, // no payload — back of hand up, fingers forward, still 2 s
   CMD_CAPTURE_MOUNT_POSE2 = 0x0A, // no payload — fingers straight up, still 2 s; solves + saves R_MOUNT

@@ -13,7 +13,7 @@
 |---|---|
 | **Team** | Daryl D. Bacusmo · Dewey Raven S. Cabahug · Sheena Patricia Kaye Caneja · Joppy B. Vargas (Team Sagbotics) |
 | **Adviser** | Engr. Nikko D. Alferez — CIT University |
-| **App** | `talkhimik_app` (Flutter) · **Firmware** | `firmware/` fw 1.3.0 (ESP32-S3 ×2; 1.2.0 still supported) |
+| **App** | `talkhimik_app` (Flutter) · **Firmware** | `firmware/` fw 1.3.1 (ESP32-S3 ×2: `glove-left/`, `glove-right/`; 1.2.0 and 1.3.0 still supported) |
 | **App version** | 0.1.0+1 · Dart `^3.13.2` |
 
 **Current stage:** two Seeed XIAO ESP32S3 BLE gloves (5 flex sensors +
@@ -42,7 +42,7 @@ the next firmware stage (planned).
 
 | Item | Value |
 |---|---|
-| Device name | `TALKHIMIK-L` (hand 0) / `TALKHIMIK-R` (hand 1) — full-name scan match |
+| Device name | `TALKHIMIK-L` (hand 0) / `TALKHIMIK-R` (hand 1) — full-name scan match; fw 1.3.1 fixes the hand per folder (`hand.h`) |
 | Service | `d84f9c2e-6b1a-4e57-9f3d-2a8c7e5b1f04` |
 | TELEMETRY (read+notify) | `7a3e1b9c-2d4f-48a6-b7e2-5c9d0f8a3b61` |
 | COMMAND (write / write-no-resp) | `3f8d2a6b-9c4e-4d7f-a1e3-6b5c8d0e2f49` |
@@ -113,15 +113,15 @@ the mount id is read only when bytes 5–8 are present.
 | 0x04 | CANCEL_CALIBRATION | — |
 | 0x05 | SET_RATE | u16 ms (clamped 20–1000) |
 | 0x06 | ZERO_YAW | — |
-| 0x07 | SET_HAND | u8 (0 L / 1 R; name updates on reboot) |
+| 0x07 | SET_HAND | u8 (0 L / 1 R; name updates on reboot). fw 1.3.1: hand fixed by the build, the other hand → error 2 |
 | 0x08 | VIBRATE | u16 ms |
 | 0x09 | CAPTURE_MOUNT_POSE1 | — (fw 1.3.0; back of hand up, fingers forward, level, still 2 s) |
 | 0x0A | CAPTURE_MOUNT_POSE2 | — (fw 1.3.0; fingers straight up, still 2 s; solves + saves R_MOUNT) |
 | 0x0B | CALIBRATE_GYRO | — (fw 1.3.0; glove at rest 2 s; also runs at boot) |
 
 0x09–0x0B each block the glove ~2 s (telemetry pauses). Mount calibration is
-saved per hand in NVS (`mount_L` / `mount_R`) using the **boot-time** hand:
-after SET_HAND, reboot the glove before mount calibration. A fw 1.2.0 glove
+saved per hand in NVS (`mount_L` / `mount_R`) using the **boot-time** hand
+(fw ≤ 1.3.0: after SET_HAND, reboot before mount calibration). A fw 1.2.0 glove
 answers 0x09–0x0B with error 2.
 
 ### Production label packet (planned)

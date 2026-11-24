@@ -1,7 +1,7 @@
-# glove-esp32 — firmware file map
+# glove firmware — file map (glove-left / glove-right)
 
 Board: **Seeed XIAO ESP32S3** (one per hand) · Build: **Arduino IDE**
-Folder: `firmware/glove-esp32/`
+Folders: `firmware/glove-left/` and `firmware/glove-right/` (identical except `hand.h`; run `python firmware/check_same.py`)
 Last updated: 2026-11-08
 
 ## Current pin map (`config.h`, PIN_MAP_VERSION 3)
@@ -24,8 +24,8 @@ I2C must use the explicit pins (`Wire.begin(IMU_SDA_PIN, IMU_SCL_PIN)`) — neve
 
 ## Files
 
-### `glove-esp32.ino` — main sketch
-Setup, loop, and the data path. Must be named `glove-esp32.ino` (Arduino requires the `.ino` name to match its folder).
+### `glove-left.ino` / `glove-right.ino` — main sketch
+Setup, loop, and the data path. Named after its folder (Arduino requires the `.ino` name to match its folder).
 - **`setup()`** — Serial 115200, pin-map + R_DIV boot logs, `flexBegin()`, `imuBegin()`, `calibrationLoad()`, `bleBegin()`, pushes CAL_INFO, prints the boot line (`fw=… hand=… calibrated=… cal_id=…`).
 - **Packet builders** — `sendTelemetry()` (29-byte binary notify), `sendStatus()` (5-byte), `batteryPct()` (disabled by default: `PIN_BATTERY = -1` → 0xFF unknown).
 - **`applyCommand()`** — dispatches the 9 COMMAND opcodes (calibration wizard, rate, zero yaw, hand, vibrate).
@@ -33,7 +33,7 @@ Setup, loop, and the data path. Must be named `glove-esp32.ino` (Arduino require
 - **`loop()`** — fully `millis()`-scheduled, no `delay()`: one flex channel per 10 ms tick (round-robin → full 5-finger scan ≈ 50 ms), IMU update every 10 ms (100 Hz), TELEMETRY every 50 ms, STATUS every 250 ms.
 
 ### `config.h` — every pin, UUID, and constant in one place
-- Pin defines + `FLEX_PINS[5]` (order everywhere: thumb, pointer, middle, ring, pinky), `FLEX_NAMES[5]`, `R_DIV[5]` (measure your actual divider resistors and edit here only).
+- Pin defines + `FLEX_PINS[5]` (order everywhere: thumb, pointer, middle, ring, pinky), `FLEX_NAMES[5]`, hand.h holds `HAND` and this glove's `R_DIV[5]` (measure your actual divider resistors and edit there only).
 - `PIN_MAP_VERSION` — bump when the pin map changes; invalidates the saved NVS calibration (recalibration required after flash).
 - BLE device name, 4 UUIDs (must match `web/index.html`), `FW_VERSION`.
 - Timing constants, COMMAND opcodes, STATUS/error codes, packet layouts + lengths (TELEMETRY 29 B, STATUS 5 B, CAL_INFO 104 B).
@@ -62,7 +62,7 @@ Setup, loop, and the data path. Must be named `glove-esp32.ino` (Arduino require
 - Service + 4 characteristics: TELEMETRY (notify), STATUS (notify), CAL_INFO (read + notify), COMMAND (write).
 - Requests MTU 247 (the 29-byte telemetry packet needs it).
 - NimBLE callbacks run in another task; commands are pushed to a FreeRTOS queue and applied in `loop()` context via `blePopCommand()`.
-- Advertising name `TALKHIMIK-L` / `TALKHIMIK-R`; hand stored in NVS (SET_HAND override wins at boot).
+- Advertising name `TALKHIMIK-L` / `TALKHIMIK-R`; hand fixed by `hand.h` (SET_HAND for the other hand returns error 2).
 
 ## Boot sequence
 

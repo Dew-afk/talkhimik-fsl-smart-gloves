@@ -13,18 +13,11 @@ static NimBLECharacteristic* pCmdChar = nullptr;
 static NimBLECharacteristic* pStatusChar = nullptr;
 static NimBLECharacteristic* pCalInfoChar = nullptr;
 static QueueHandle_t cmdQueue = nullptr;
-static uint8_t hand = HAND_DEFAULT;
+static const uint8_t hand = HAND & 0x01;   // fixed by this build (hand.h)
 static bool connected = false;
 
 String bleDeviceName() {
   return String(DEVICE_NAME_PREFIX) + (hand ? "-R" : "-L");
-}
-
-static void loadHandFromNVS() {
-  Preferences p;
-  p.begin("talkhimik", true);
-  hand = p.getUChar("hand", HAND_DEFAULT) & 0x01;
-  p.end();
 }
 
 // One central per glove: advertising stops on connect and restarts on
@@ -59,7 +52,6 @@ class GloveCmdCallbacks : public NimBLECharacteristicCallbacks {
 };
 
 void bleBegin() {
-  loadHandFromNVS();
   NimBLEDevice::init(bleDeviceName().c_str());
   NimBLEDevice::setMTU(247);      // negotiate the larger MTU up front
 
@@ -108,12 +100,3 @@ bool bleNotifyCalInfo(const uint8_t* data, size_t len) {
 }
 
 uint8_t bleGetHand() { return hand; }
-
-void bleSetHand(uint8_t h) {
-  hand = h & 0x01;
-  Preferences p;
-  p.begin("talkhimik", false);
-  p.putUChar("hand", hand);
-  p.end();
-  Serial.printf("[ble] hand set to %d (advertised name updates on reboot)\n", hand);
-}

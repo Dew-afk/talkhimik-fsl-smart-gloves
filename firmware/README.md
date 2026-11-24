@@ -9,20 +9,26 @@ USB-serial) are superseded.
 
 ```
 firmware/
-├── glove-esp32/              # Arduino sketch — flash per hand
+├── glove-left/               # Arduino sketch — flash on the LEFT glove
+│   ├── hand.h                # HAND 0 + this glove's R_DIV (the only per-glove file)
 │   ├── config.h              # ALL pins, UUIDs, packet layouts, timing
-│   ├── glove-esp32.ino       # setup/loop, packet builders, command handling
+│   ├── glove-left.ino        # setup/loop, packet builders, command handling
 │   ├── flex.h / .cpp         # ADC reads (divider -> resistance)
 │   ├── imu.h / .cpp          # MPU-6050/6500: R_MOUNT, gyro bias, fused roll/pitch/yaw
 │   ├── calibration.h/.cpp    # flat/90 state machine + NVS persistence
 │   └── ble_link.h/.cpp       # NimBLE GATT server (TELEMETRY/COMMAND/STATUS)
+├── glove-right/              # same files; hand.h says HAND 1 — flash on the RIGHT glove
+├── check_same.py             # confirms left and right differ only in hand.h
 ├── web/
 │   └── index.html            # dashboard — open in Chrome/Edge
 └── README.md
 ```
 
-> The sketch is named `glove-esp32.ino` (the spec said `main.ino`): the Arduino
-> build system requires the `.ino` file to match its folder name.
+> Each `.ino` matches its folder name (`glove-left/glove-left.ino`): the Arduino
+> build system requires it.
+>
+> **Edit both folders.** Any change outside `hand.h` must be copied to the
+> other glove; `python firmware/check_same.py` lists anything that differs.
 
 ## Libraries (Arduino Library Manager)
 
@@ -64,11 +70,11 @@ channel (put measured values back there if parts are ever swapped).
 
 ## Flashing each hand
 
-1. Open `firmware/glove-esp32/glove-esp32.ino`.
-2. For the left glove set `HAND_DEFAULT 0`, for the right glove `HAND_DEFAULT 1`
-   (or flash both the same and send COMMAND `0x07 SET_HAND` once — it is saved
-   to NVS and wins at the next reboot).
-3. Upload, open the Serial Monitor at 115200 to see the boot/debug log
+1. Left glove: open `firmware/glove-left/glove-left.ino`. Right glove: open
+   `firmware/glove-right/glove-right.ino`. The hand is fixed by the folder
+   (fw 1.3.1+): no setting to change, and a hand saved by older firmware is
+   ignored.
+2. Upload, open the Serial Monitor at 115200 to see the boot/debug log
    (`[ble] advertising as TALKHIMIK-L`, IMU present, calibration state).
 
 ## Running the dashboard
@@ -148,7 +154,7 @@ sample. Read on connect; notified when a calibration run completes.
 | 0x04 | CANCEL_CALIBRATION | — |
 | 0x05 | SET_RATE | u16 LE ms (clamped 20–1000) |
 | 0x06 | ZERO_YAW | — |
-| 0x07 | SET_HAND | u8 (0 = L, 1 = R; NVS, name updates on reboot) |
+| 0x07 | SET_HAND | u8 — fw 1.3.1: hand fixed by the build; the other hand → error 2 |
 | 0x08 | VIBRATE | u16 LE ms |
 | 0x09 | CAPTURE_MOUNT_POSE1 | — (back of hand up, fingers forward, level, still 2 s) |
 | 0x0A | CAPTURE_MOUNT_POSE2 | — (fingers straight up, still 2 s; solves + saves R_MOUNT) |
@@ -230,7 +236,7 @@ a right-hand rotation about +X.
 ## Assumptions
 
 - Battery sensing disabled (ADC2 conflict) → STATUS battery 0xFF; hook in `config.h`.
-- `SET_HAND` takes effect on the name at the next reboot (NVS-backed).
+- The hand is fixed by the flashed folder (`hand.h`); `SET_HAND` cannot change it.
 - Yaw has no magnetometer reference — drifts; the dashboard can send `ZERO_YAW`.
 - Exactly one central per glove (advertising stops on connect, restarts on disconnect).
 - Gesture classes merge letters that differ only in thumb abduction/motion
