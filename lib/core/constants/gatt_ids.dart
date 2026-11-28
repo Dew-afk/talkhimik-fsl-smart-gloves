@@ -5,11 +5,6 @@
 /// (`firmware/glove-left/config.h`, same in glove-right), mirrored by the web
 /// dashboard. The app consumes TELEMETRY / STATUS / CAL_INFO and writes
 /// COMMAND opcodes.
-///
-/// Planned contract: once on-glove TFLM inference ships, the glove will also
-/// emit production label packets (SRS Table III-2 — see
-/// [gesturePacketLength] and `gesture_packet_codec.dart`), which the mock
-/// glove already models today.
 library;
 
 class GattIds {
@@ -47,10 +42,6 @@ class GattIds {
 
   /// CAL_INFO table length in bytes (Code Reference §5.5).
   static const int calInfoPacketLength = 104;
-
-  /// Production label packet length in bytes (SRS Table III-2, planned):
-  /// word_id u16 + confidence u8 + timestamp_ms u32 (little-endian).
-  static const int gesturePacketLength = 7;
 }
 
 /// Reconnection policy for the stateless glove (SRS C-F7, C-S5, NFR-9).

@@ -28,13 +28,13 @@ the next firmware stage (planned).
 
 | Part | Stack |
 |---|---|
-| **App** | Flutter 3.47 (stable) · Dart `^3.13.2` · Material 3, Inter font · Android target (Windows/web = mock gloves only) |
+| **App** | Flutter 3.47 (stable) · Dart `^3.13.2` · Material 3, Inter font · Android target (tests use mock gloves) |
 | App packages (`pubspec.yaml`) | `flutter_riverpod` 3.4.3 (state) · `flutter_blue_plus` 2.3.12 (BLE) · `hive_ce` 2.19.3 (event log) · `shared_preferences` 2.5.5 (settings, CAL_INFO cache) · `flutter_tts` 4.2.5 (speech) · `permission_handler` 12.0.3 (pinned: 13.x needs compileSdk 37) · `path_provider` 2.1.5 · `share_plus` ^13.3.1 · `meta` |
 | App tests | `flutter_test` · `flutter_lints` ^6.0.0 |
 | **Glove hardware** | 2 × Seeed XIAO ESP32S3 · 5 flex sensors (voltage divider → 12-bit ADC) · MPU-6050/6500 IMU (I²C, mounted upside down) · vibration motor |
 | **Firmware** (`firmware/`) | Arduino (C++), Seeed ESP32 board package, board XIAO_ESP32S3 · NimBLE-Arduino 2.x (GATT server) · MPU6050_light (IMU) · `Preferences` (NVS: calibration, hand, mount) |
 | **Web dashboard** | Single-file HTML + JS (`firmware/web/index.html`), Web Bluetooth, Chrome/Edge, served with `python -m http.server` |
-| **ML pipeline** (`ml/`) | Python · numpy ≥ 1.26 (loader, splits, MLP, exports) · TensorFlow ≥ 2.16 optional (only for `.tflite` export) · on the phone the model runs as a pure-Dart MLP (§13, §15) |
+| **ML pipeline** (`ml/`) | Python · numpy ≥ 1.26 (loader, splits, MLP, exports) · on the phone the model runs as a pure-Dart MLP (§13, §15) |
 
 ---
 
@@ -127,8 +127,7 @@ answers 0x09–0x0B with error 2.
 ### Production label packet (planned)
 
 7 bytes: word_id u16 + confidence u8 + timestamp_ms u32 (SRS Table III-2).
-`GesturePacketCodec` + test are in place; the mock drives the transcript
-through it. The phone-side recognizer (§13) drives the transcript today
+No decoder yet (firmware does not send it). The phone-side recognizer (§13) drives the transcript today
 and PAUSES itself the moment a real label packet arrives (glove takes
 precedence, both paths feed the same transcript events).
 word_id ranges: 1–28 letters, 100+ built-in phrases; 1000+ is used only on the
@@ -164,10 +163,10 @@ lib/
 ├── domain/
 │   ├── sensing/sensor_math.dart   # §2
 │   ├── models/                    # HandState, CalInfoPacket, TelemetryPacket, DatasetSession, …
-│   ├── repositories/              # LogStore, VocabularyRepository, CloudSync
+│   ├── repositories/              # LogStore, VocabularyRepository
 │   └── vocab/                     # 28 letters + phrases (word_id → fil/eng)
 ├── data/
-│   ├── codec/                     # telemetry/status/CAL_INFO + planned label packet
+│   ├── codec/                     # telemetry/status/CAL_INFO
 │   ├── dataset/dataset_file_writer.dart
 │   ├── glove/                     # GloveConnection (BLE/mock/factory/permissions)
 │   ├── storage/                   # HiveLogStore, CalInfo cache, settings
@@ -186,7 +185,7 @@ lib/
 - A telemetry `hand` byte disagreeing with the glove name → data trusted,
   mismatch badge shown.
 - Factory: BLE on Android/iOS only; mock everywhere else (and with the
-  Settings "Force mock" flag). Mock auto-connects both hands on web/Windows.
+  Settings "Force mock" flag).
 - Reconnect per hand: backoff 1→2→4→8→30 s, "connection lost" banner ≤ 3 s,
   stateless glove re-runs the full flow (C-F7).
 
@@ -286,13 +285,13 @@ seq-gap loss, trailing-second update rate, mismatch flag):
   in either id closes the file and opens a new one; files never mix
   calibrations (mount id from STATUS; null on fw 1.2.0). `cal_id == 0` blocks
   recording.
-- Drops counted, never kept: raw 0/4095 on a **valid** finger (`adcRail`),
-  wrap-safe seq gap > 3 (`seqGap`) between consecutive RECEIVED frames
-  (not between samples: at 20 Hz vs 5 Hz those are normally 3 apart, so a
-  late timer tick used to drop good rows). Re-sampling the same frame
+- Drops counted, never kept: raw 0/4095 on a **valid** finger (`adcRail`).
+  A wrap-safe seq gap > 3 between consecutive RECEIVED frames is only
+  counted (`seqGap`): the next frame is fresh, so its row is kept (dropping
+  it lost every left row with two gloves on). Re-sampling the same frame
   (glove stalled) writes nothing. During a take every skip shows a plain
-  reason on the Record screen (cal_id 0, sensor at its limit, link loss,
-  no new readings); the next written row clears it. Invalid fingers lose
+  reason on the Record screen (cal_id 0, sensor at its limit, no new
+  readings); the next written row clears it. Invalid fingers lose
   their columns.
 - Takes: each Start press increments `take_id` (new session → 1); rows only
   flow while a labeled take runs; empty label blocked. Signer id =
@@ -314,11 +313,10 @@ seq-gap loss, trailing-second update rate, mismatch flag):
   `timestamp_ms, session_id, signer_id, hand, calibration_id, label,
   take_id, raw_*, ohm_*, ang_*, roll, pitch, yaw, quality_flag`.
   Sidecar: session/signer/hand/cal_id/mount_calibration_id/roll_note/rate/
-  fw/recorded_at/rows/dropped {adcRail, seqGap}/r_div/fingers{valid,weak,
+  fw/recorded_at/rows/dropped {adcRail, seqGap = link gaps, rows kept}/r_div/fingers{valid,weak,
   flat/bent ohm+adc,span}. `roll_note` matches the web dashboard's text.
 - Rows are appended as recorded (crash-safe); sessions list newest first
-  with size, Share (`share_plus`) and Delete. Web/Windows without path
-  provider: recording unsupported (graceful `UnsupportedError`).
+  with size, Share (`share_plus`) and Delete.
 
 ---
 
@@ -371,7 +369,7 @@ seq-gap loss, trailing-second update rate, mismatch flag):
 
 ## 9. Definition of done
 
-- ✅ Mock demonstrates every state on Windows/web without hardware.
+- ✅ Mock demonstrates every state without hardware (tests).
 - ✅ Keep areas (transcript/TTS/settings/Hive log/export/reconnect) behave
   as before; existing tests green.
 - ✅ Zero connectivity — no network calls.
@@ -384,9 +382,6 @@ seq-gap loss, trailing-second update rate, mismatch flag):
 
 - Production label packet (planned §1) — the firmware stage that replaces
   phone-side recognition; the app already handles both paths.
-- TFLite engine on the phone — the trained model currently runs as a
-  pure-Dart MLP (§15); `assets/models/talkhimik_letters.tflite` +
-  a TFLite engine behind `GestureClassifier` are the upgrade path.
 - Hardware verification on the realme phone with real gloves.
 
 ---
@@ -396,10 +391,7 @@ seq-gap loss, trailing-second update rate, mismatch flag):
 - **Android** (primary): SDK 36 + Temurin JDK 17 at `D:\Android`
   (`flutter config --android-sdk/--jdk-dir`); `flutter build apk` green;
   app installed on the realme field phone. BLE needs a physical phone.
-- **Windows**: dev machine — mock gloves, full UI.
-- **Web (`flutter run -d chrome`)**: mock gloves only; Hive in IndexedDB;
-  TTS degrades; dataset recording unsupported. Demo: Home scenarios + Live
-  two animated hands + mock wizard.
+- Web and Windows platform folders were removed (2026-11-28): Android only.
 - **iOS**: no target — out of thesis scope.
 
 ---
@@ -502,6 +494,24 @@ telemetry (20 Hz) ── signing hand (Settings → Recognition)
   labels.json confidence floor or on the `_rest` class nothing is
   emitted (it counts as a release). No model present / wrong hand /
   corrupt files → the threshold rules take over (`ClassifierFactory`).
+  Shipped (2026-11-28): right hand, variant B, 31 classes (A–Z, Ñ,
+  Salamat, Magkano?, kita tayo bukas, `_rest`) from two cal-18 sessions
+  on one mount; held-out frame accuracy 97.9 % (same-sitting takes, so
+  optimistic), floor 0.80. Look-alikes that remain: A/M/N/Ñ/T (thumb
+  position) and U/V (finger spread) — the flex sensors cannot see them.
+- **Two-hand model (optional):** `assets/models/weights_two.json` +
+  `labels_two.json` (hand `LR`, inputs `L_*` then `R_*`: each glove's 5
+  angles + roll + pitch). Trained from Collect's **Both** recordings
+  (sidecar `two_hand: true`; one-hand models skip them). With both gloves
+  sending gate-clean frames, its word replaces the one-hand guess when it
+  clears its own floor and is not `_rest`; the one-hand guess is
+  ignored: a confident two-hand word always wins (it saw the left hand).
+  None shipped right now (the old Both recordings were deleted with the
+  recalibration; re-record Salamat / Maraming Salamat / `_rest` in Both).
+- **Hand contact is not sensed.** A bump test (2026-11-27, removed from the
+  repo afterwards) found touch jolts no larger than near misses (median
+  0.2 m/s², best threshold caught 1 of 20), so contact signs are told apart
+  by handshape and tilt only.
 - **Stabilizer constants** (`lib/domain/classifier/stabilizer.dart`):
   window 20 frames @ 20 Hz, majority ≥ 10 votes, release = neutral for
   ≥ 400 ms, min 400 ms between emissions; the same letter twice requires
@@ -550,17 +560,18 @@ telemetry (20 Hz) ── signing hand (Settings → Recognition)
 1. collect    Collect screen → record takes (10+ per letter, REST too)
 2. export     Collect → "Share all for training" → save the folder
 3. train      ml/.venv: python train.py <folder> --out out
-              (pip install -r requirements.txt; + tensorflow for .tflite)
-4. install    copy out/weights.json + out/labels.json (+ .tflite) into
-              assets/models/ and rebuild the app
+              (pip install -r requirements.txt)
+4. install    copy out/weights.json + out/labels.json (and
+              weights_two.json + labels_two.json when Both takes were
+              recorded) into assets/models/ and rebuild the app
 5. test       Home with the real glove: debug panel shows
               phone-tflite + the model version
 ```
 
 Pipeline facts: validation and every drop decision are reported
 (missing sidecar, cal mismatch, invalid-finger sessions, bad-quality
-rows, <5-take labels, Z skipped); **moving labels are motion-gated** (detected: the median
-take turns the hand ≥ 20°; J always): their handshape trains like any label, and `motion_gates()` writes `labels.json`
+rows, <5-take labels); **moving labels are motion-gated** (detected: the median
+take turns the hand ≥ 10°; J and Z always): their handshape trains like any label, and `motion_gates()` writes `labels.json`
 `motion_labels: {"J": {"pitch_span_deg": x, "window_ms": 1500}}` with x
 midway between still takes (letters and REST, not phrases; 95th-percentile pitch span) and that sign's
 smallest take span. The app (`MotionGate`, recognition controller) emits it
@@ -572,9 +583,11 @@ Pitch, because roll wraps at ±180 and yaw drifts. A hand whose
 session split would leave train, val or test empty splits by take instead (report flags it optimistic); splits are grouped by SESSION
 (~70/15/15, per-label coverage — never random rows) with
 leave-one-signer-out when ≥ 2 signers (one signer → the report says
-cross-person generalization is untested); two input variants are
-compared (A = angles, B = angles + roll/pitch; yaw never used); outputs:
+cross-person generalization is untested); three input variants are
+compared (A = angles, B = angles + roll/pitch, C = angles + world-up
+vector `up_x/up_y/up_z` = (sin p, cos p·sin r, cos p·cos r), which does
+not wrap at roll ±180 or blow up near pitch 90; yaw never used); outputs:
 report.md, MODEL_CARD.md, confusion matrix CSV/PNG, weights.json,
 labels.json (hand, input spec, class→word_id map, confidence floor,
-trained-on summary, metrics), and .tflite when TensorFlow is installed.
+trained-on summary, metrics).
 `python test_pipeline.py` verifies the whole pipeline on synthetic data.

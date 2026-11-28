@@ -51,7 +51,6 @@ def main():
         assert report["missing_sidecar"] == []
         labels = {r["label"] for r in rows}
         assert "A" in labels and REST_LABEL in labels
-        assert "Z" not in labels  # skipped (J is kept: motion-gated)
 
         # --- motion gate: midway between still takes and J's motion ----
         def take(label, t, pitches):
@@ -75,7 +74,7 @@ def main():
         assert sorted(paths) == ["J", "Salamat"]
         assert len(paths["Salamat"]) == 2
         first = paths["Salamat"][0]
-        assert first["tol_deg"] == 24.0  # 0.4 x 60 deg
+        assert first["tol_deg"] == 18.0  # 0.3 x 60 deg
         assert len(first["points"]) == 5
         assert np.allclose(first["points"][0], [0.5, 0, 0.866], atol=1e-3)
         # the score follows the app: the movement speaks, its reverse not
@@ -221,6 +220,19 @@ def main():
         kept, kept_report = load_dataset.load_dataset(sparse)
         assert {r["label"] for r in kept} == {"A", "B"}
         assert kept_report["deleted_words_skipped"] == ["Salamat"]
+
+        # --- two-handed (Both mode) sessions are not trained ----------
+        both = os.path.join(tmp, "both")
+        os.makedirs(both)
+        name = sorted(n for n in os.listdir(sparse) if n.endswith(".csv"))[0]
+        shutil.copy(os.path.join(sparse, name), both)
+        side = json.load(open(os.path.join(
+            sparse, name[:-4] + "_sidecar.json"), encoding="utf-8"))
+        with open(os.path.join(both, name[:-4] + "_sidecar.json"), "w",
+                  encoding="utf-8") as f:
+            json.dump(dict(side, two_hand=True), f)
+        rows2, rep2 = load_dataset.load_dataset(both)
+        assert rows2 == [] and rep2["two_hand_sessions_skipped"] == [name]
         custom = export_labels(
             os.path.join(tmp, "custom.json"), "L", "A", ["A", "Kain"], 0.5,
             {}, {}, custom_ids={"Kain": 1001, "A": 9})
@@ -301,6 +313,51 @@ def main():
         assert len(INPUT_A) == 5
         print(f"export load-back OK (variant {best_var}, "
               f"{len(model.classes)} classes)")
+
+        # --- two-hand model: neither hand alone separates the words ---
+        two = os.path.join(tmp, "two")
+        os.makedirs(two)
+        fist, flat = [60, 80, 80, 80, 80], [5, 5, 5, 5, 5]
+        words = {"Kain": (fist, flat), "Tulong": (flat, fist),
+                 "Sabay": (fist, fist), REST_LABEL: (flat, flat)}
+        rng = np.random.default_rng(3)
+        for hand, side in (("L", 0), ("R", 1)):
+            sid = f"S-two-{hand}"
+            lines, n = [], 0
+            for t, (label, shapes) in enumerate(
+                    (l, s) for l, s in words.items() for _ in range(6)):
+                takes = [np.clip(np.array(shapes[side]) + rng.normal(0, 3, 5), 0, 90)
+                         for _ in range(8)]
+                lines += synth._csv_lines(sid, "P-001", hand, 3, label, t + 1,
+                                          takes, [(0.0, 0.0)] * 8)
+                n += 8
+            with open(os.path.join(two, sid + ".csv"), "w",
+                      encoding="utf-8") as f:
+                f.write("\n".join([",".join(synth._header())] + lines) + "\n")
+            with open(os.path.join(two, sid + "_sidecar.json"), "w",
+                      encoding="utf-8") as f:
+                json.dump(dict(synth._sidecar(sid, "P-001", hand, 3, n),
+                               two_hand=True), f)
+        two_rows, _ = load_dataset.load_dataset(two, two_hand=True)
+        paired = train.pair_two_hand(two_rows)
+        assert len(paired) == len(two_rows) // 2, len(paired)
+        late = dict(two_rows[0], ts=two_rows[0]["ts"] + 10_000)
+        assert len(train.pair_two_hand(two_rows + [late])) == len(paired)
+        assert load_dataset.load_dataset(two)[0] == []  # one-hand: skipped
+        section = train.train_two_hand(two, two)
+        assert section and "Two-hand model" in section, section
+        spec2 = json.load(open(os.path.join(two, "labels_two.json")))
+        assert spec2["hand"] == "LR"
+        assert spec2["input_spec"]["order"] == train.INPUT_2
+        assert spec2["metrics"]["accuracy"] >= 0.9, spec2["metrics"]
+        w2 = json.load(open(os.path.join(two, "weights_two.json")))
+        assert w2["input_order"] == train.INPUT_2
+        print(f"two-hand model OK (acc {spec2['metrics']['accuracy']})")
+        # Variant C: roll +179 and -179 are the same pose (no wrap).
+        a, b = (dict(two_rows[0], roll=r, pitch=80.0) for r in (179.0, -179.0))
+        fa, fb = train.feature_matrix([a, b], "C")
+        assert fa.shape == (8,) and abs(fa - fb).max() < 0.01, (fa, fb)
+        print("variant C up vector OK")
         print("ALL PIPELINE TESTS PASSED")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

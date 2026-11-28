@@ -27,7 +27,9 @@ class RecorderState {
     this.label = '',
     this.error,
     this.undoLabel = '',
+    this.undoMore = 0,
     this.revision = 0,
+    this.recordHands = '',
   });
 
   final RecordingPhase phase;
@@ -47,12 +49,19 @@ class RecorderState {
   /// User-facing gating message.
   final String? error;
 
-  /// Label of the last finished take that
+  /// Label of the newest finished take that
   /// [DatasetRecorderController.undoLastTake] can remove; '' when none.
   final String undoLabel;
 
+  /// How many older takes can still be undone after that one.
+  final int undoMore;
+
   /// Bumped whenever rows are removed from disk (coverage rebuild cue).
   final int revision;
+
+  /// Which glove(s) a recording saves: 'right', 'left', 'both' (one
+  /// two-handed sign), or '' = the only connected glove.
+  final String recordHands;
 
   RecorderState copyWith({
     RecordingPhase? phase,
@@ -62,7 +71,9 @@ class RecorderState {
     String? label,
     String? error,
     String? undoLabel,
+    int? undoMore,
     int? revision,
+    String? recordHands,
   }) =>
       RecorderState(
         phase: phase ?? this.phase,
@@ -72,7 +83,9 @@ class RecorderState {
         label: label ?? this.label,
         error: error,
         undoLabel: undoLabel ?? this.undoLabel,
+        undoMore: undoMore ?? this.undoMore,
         revision: revision ?? this.revision,
+        recordHands: recordHands ?? this.recordHands,
       );
 }
 
@@ -100,10 +113,17 @@ class DatasetRecorderController extends Notifier<RecorderState> {
   int _takeId = 0;
   String _takeLabel = '';
 
-  /// Sessions that received rows in the current/last take — what undo
-  /// rewrites (a take can span a calibration change → several sessions).
-  final Map<String, DatasetSession> _takeSessions = {};
-  int? _undoTakeId;
+  /// Sessions that received rows in the current take — what undo rewrites
+  /// (a take can span a calibration change → several sessions).
+  Map<String, DatasetSession> _takeSessions = {};
+
+  /// Finished takes that undo can remove, newest last. Memory only: undo
+  /// never reaches takes from before the app was opened.
+  final List<_UndoTake> _undo = [];
+  static const maxUndo = 20;
+
+  /// Gloves saved by the running recording (fixed at [start]).
+  Set<GloveHand> _hands = GloveHand.values.toSet();
 
   @override
   RecorderState build() {
@@ -154,9 +174,9 @@ class DatasetRecorderController extends Notifier<RecorderState> {
   Future<void> resetAll() async {
     if (state.phase == RecordingPhase.recording) return;
     await ref.read(datasetWriterProvider).deleteAll();
-    _takeSessions.clear();
-    _undoTakeId = null;
-    state = state.copyWith(undoLabel: '', revision: state.revision + 1);
+    _takeSessions = {};
+    _undo.clear();
+    state = _withUndo(state.copyWith(revision: state.revision + 1));
     await _loadSessions();
   }
 
@@ -186,10 +206,34 @@ class DatasetRecorderController extends Notifier<RecorderState> {
       return;
     }
     final live = ref.read(liveControllerProvider);
-    for (final hand in const [GloveHand.left, GloveHand.right]) {
+    final connected = {
+      for (final h in GloveHand.values)
+        if (live.forHand(h).telemetry != null) h,
+    };
+    final hands = switch (state.recordHands) {
+      'left' => {GloveHand.left},
+      'right' => {GloveHand.right},
+      'both' => GloveHand.values.toSet(),
+      // Both gloves on and no choice: the idle hand would be saved under
+      // the signing hand's label, so ask instead of guessing.
+      _ => connected.length == 2
+          ? <GloveHand>{}
+          : connected.isEmpty
+              ? GloveHand.values.toSet()
+              : connected,
+    };
+    if (hands.isEmpty) {
+      state = state.copyWith(error: AppStrings.recordPickHands);
+      return;
+    }
+    if (state.recordHands.isNotEmpty && !connected.containsAll(hands)) {
+      state = state.copyWith(error: AppStrings.recordHandNotConnected);
+      return;
+    }
+    _hands = hands;
+    for (final hand in hands) {
       final id = live.forHand(hand).calInfo?.calibrationId ?? 0;
-      final connected = live.forHand(hand).telemetry != null;
-      if (connected && id == 0) {
+      if (connected.contains(hand) && id == 0) {
         state = state.copyWith(error: AppStrings.recordNeedsCalibration);
         return;
       }
@@ -199,12 +243,18 @@ class DatasetRecorderController extends Notifier<RecorderState> {
     _sampler = Timer.periodic(sampleInterval, (_) => unawaited(sampleNow()));
   }
 
-  /// One sampling tick: the latest frame of each hand flows through the
-  /// drop rules and, while a take is active, into the session's CSV.
+  /// Picks which glove(s) the next recording saves; locked while recording.
+  void setRecordHands(String hands) {
+    if (state.phase == RecordingPhase.recording) return;
+    state = state.copyWith(recordHands: hands);
+  }
+
+  /// One sampling tick: the latest frame of each recorded hand flows
+  /// through the drop rules and, while a take is active, into its CSV.
   @visibleForTesting
   Future<void> sampleNow() async {
     if (state.phase != RecordingPhase.recording) return;
-    for (final hand in const [GloveHand.left, GloveHand.right]) {
+    for (final hand in _hands) {
       final frame = _latest[hand];
       if (frame == null) continue;
       await _sampleHand(hand, frame);
@@ -236,13 +286,10 @@ class DatasetRecorderController extends Notifier<RecorderState> {
     }
     _lastSampledSeq[hand] = frame.seq;
 
-    // More than 3 frames lost on the link since the last sample → drop.
-    if (_linkLoss.remove(hand)) {
-      session.seqGapDrops++;
-      session.droppedFrames++;
-      _skipped(AppStrings.recordLinkLoss);
-      return;
-    }
+    // More than 3 frames lost on the link since the last sample: counted,
+    // but this frame is fresh, so it is kept (with two gloves connected
+    // dropping it lost every left-glove row).
+    if (_linkLoss.remove(hand)) session.seqGapDrops++;
 
     // ADC rail (raw 0 or 4095) on any VALID finger → drop.
     for (var i = 0; i < 5; i++) {
@@ -318,6 +365,7 @@ class DatasetRecorderController extends Notifier<RecorderState> {
       ],
       startedAt: DateTime.now(),
       mountCalibrationId: _mountIdFor(hand),
+      twoHand: state.recordHands == 'both',
     )
       // Seed the in-flight take (a take can precede the first frame).
       ..takeId = _takeId
@@ -363,8 +411,7 @@ class DatasetRecorderController extends Notifier<RecorderState> {
     }
     _takeId++;
     _takeLabel = trimmed;
-    _takeSessions.clear();
-    _undoTakeId = null;
+    _takeSessions = {};
     final active = {...state.active};
     for (final session in active.values) {
       session.takeId = _takeId;
@@ -374,18 +421,19 @@ class DatasetRecorderController extends Notifier<RecorderState> {
         active: active,
         takeActive: true,
         label: trimmed,
-        error: null,
-        undoLabel: '');
+        error: null);
   }
 
   /// Ends the current take; rows already written stay. The sidecar is
   /// (re)written now too, so a session is listed and shareable after every
   /// take — not only after Stop, which a killed app never reaches.
   Future<void> stopTake() async {
-    if (state.takeActive && _takeSessions.isNotEmpty) _undoTakeId = _takeId;
-    state = state.copyWith(
-        takeActive: false,
-        undoLabel: _undoTakeId == null ? '' : _takeLabel);
+    if (state.takeActive && _takeSessions.isNotEmpty) {
+      _undo.add(_UndoTake(_takeId, _takeLabel, _takeSessions));
+      if (_undo.length > maxUndo) _undo.removeAt(0);
+      _takeSessions = {};
+    }
+    state = _withUndo(state.copyWith(takeActive: false));
     for (final session in state.active.values) {
       await ref.read(datasetWriterProvider).closeSession(session);
     }
@@ -413,30 +461,45 @@ class DatasetRecorderController extends Notifier<RecorderState> {
     state = state.copyWith(active: active);
   }
 
-  /// Deletes the last finished take's rows (a mislabeled or botched take)
-  /// from every session it wrote to, then rewrites their sidecars. One
-  /// level: the take before it stays.
+  /// Deletes the newest finished take's rows (a mislabeled or botched
+  /// take) from every session it wrote to, then rewrites their sidecars.
+  /// Call again to remove the take before it (up to [maxUndo]).
   Future<void> undoLastTake() async {
-    final takeId = _undoTakeId;
-    if (takeId == null || state.takeActive) return;
+    if (_undo.isEmpty || state.takeActive) return;
+    final take = _undo.removeLast();
     final writer = ref.read(datasetWriterProvider);
-    for (final session in _takeSessions.values) {
-      session.rows -= await writer.removeTake(session, takeId);
+    for (final session in take.sessions.values) {
+      session.rows -= await writer.removeTake(session, take.id);
       await writer.closeSession(session);
     }
-    _takeSessions.clear();
-    _undoTakeId = null;
-    state = state.copyWith(undoLabel: '', revision: state.revision + 1);
+    state = _withUndo(state.copyWith(revision: state.revision + 1));
     await _loadSessions();
   }
 
-  /// Removes a finished session's files from disk.
+  RecorderState _withUndo(RecorderState s) => s.copyWith(
+      undoLabel: _undo.isEmpty ? '' : _undo.last.label,
+      undoMore: _undo.isEmpty ? 0 : _undo.length - 1);
+
+  /// Removes a finished session's files from disk (and its takes from undo).
   Future<void> deleteSession(DatasetSessionSummary summary) async {
     await ref.read(datasetWriterProvider).deleteSession(summary);
+    for (final take in _undo) {
+      take.sessions.remove(summary.sessionId);
+    }
+    _undo.removeWhere((t) => t.sessions.isEmpty);
+    state = _withUndo(state);
     await _loadSessions();
   }
 
   /// Absolute paths of a session's files, for the share sheet.
   Future<List<String>> pathsFor(DatasetSessionSummary summary) =>
       ref.read(datasetWriterProvider).pathsFor(summary);
+}
+
+/// One finished take that undo can remove.
+class _UndoTake {
+  _UndoTake(this.id, this.label, this.sessions);
+  final int id;
+  final String label;
+  final Map<String, DatasetSession> sessions;
 }

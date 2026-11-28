@@ -86,9 +86,7 @@ class GestureLogEntry {
 
 /// One entry of the offline sync queue (SRS FR-10, C-S4).
 ///
-/// Log rows are queued here until a [CloudSync] implementation flushes them
-/// to Firestore; the local-only implementation of this pass marks them
-/// synced without uploading.
+/// Log rows are queued here for a future cloud upload (not built).
 @immutable
 class SyncQueueEntry {
   const SyncQueueEntry({

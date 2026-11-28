@@ -3,9 +3,8 @@ import 'dart:io';
 
 /// Coverage targets and thresholds — THE constants for the dataset
 /// coverage card (C2). "X of Y letters ready" counts labels at
-/// [okAtOrAbove] takes or more; Z is excluded (dynamic letter, no motion
-/// gate yet) and shown as "later". J trains like any letter (motion-gated
-/// in the app), so it counts.
+/// [okAtOrAbove] takes or more. J and Z train like any letter (motion-gated
+/// in the app), so they count.
 class CoverageThresholds {
   CoverageThresholds._();
 
@@ -14,9 +13,6 @@ class CoverageThresholds {
 
   /// At or above this a label is "good".
   static const int goodAtOrAbove = 10;
-
-  /// Letters excluded from the needs-data targets.
-  static const Set<String> laterLabels = {'Z'};
 }
 
 /// The special REST label as stored in CSV files.
@@ -30,12 +26,10 @@ String wrongLabelFor(String word) => '_wrong_$word';
 
 /// Chip state for one label on the coverage card (icon + number, never
 /// color alone).
-enum CoverageLevel { needsData, ok, good, later }
+enum CoverageLevel { needsData, ok, good }
 
 CoverageLevel coverageLevelFor(String label, int takes) =>
-    CoverageThresholds.laterLabels.contains(label)
-        ? CoverageLevel.later
-        : takes >= CoverageThresholds.goodAtOrAbove
+    takes >= CoverageThresholds.goodAtOrAbove
             ? CoverageLevel.good
             : takes >= CoverageThresholds.okAtOrAbove
                 ? CoverageLevel.ok
@@ -98,10 +92,9 @@ class CoverageIndex {
 
   int get restTakes => labels[restLabel]?.takes ?? 0;
 
-  /// Labels with ≥ [CoverageThresholds.okAtOrAbove] takes, excluding the
-  /// "later" letters (J/Z) — the "X of Y letters ready" numerator.
+  /// Labels with ≥ [CoverageThresholds.okAtOrAbove] takes — the "X of Y
+  /// letters ready" numerator.
   int readyCount(List<String> targets) => targets
-      .where((l) => !CoverageThresholds.laterLabels.contains(l))
       .where((l) => (labels[l]?.takes ?? 0) >= CoverageThresholds.okAtOrAbove)
       .length;
 

@@ -14,6 +14,7 @@ class DatasetSession {
     required this.fingers,
     required this.startedAt,
     this.mountCalibrationId,
+    this.twoHand = false,
   });
 
   final String sessionId;
@@ -39,6 +40,10 @@ class DatasetSession {
   /// STATUS mount_calibration_id at open (fw 1.3.0+); null for fw 1.2.0
   /// gloves or before the first STATUS arrived.
   final int? mountCalibrationId;
+
+  /// Recorded in Both mode: this hand's half of a two-handed sign (the
+  /// other glove's session shares label and take_id). Not trained yet.
+  final bool twoHand;
 
   int rows = 0;
   int droppedFrames = 0;

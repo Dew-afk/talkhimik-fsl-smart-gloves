@@ -6,8 +6,10 @@ import '../data/glove/glove_connection.dart';
 import '../domain/classifier/classifier_factory.dart';
 import '../domain/classifier/gesture_classifier.dart';
 import '../domain/classifier/hand_frame.dart';
+import '../domain/classifier/mlp_classifier.dart';
 import '../domain/classifier/model_bundle.dart';
 import '../domain/classifier/motion_gate.dart';
+import '../domain/classifier/prediction.dart';
 import '../domain/classifier/recognition_constants.dart';
 import '../domain/classifier/refuse_gate.dart';
 import '../domain/classifier/stabilizer.dart';
@@ -136,6 +138,7 @@ class RecognitionController extends Notifier<RecognitionState> {
   final MotionGate _motion = MotionGate();
   final ClassifierFactory _factory = const ClassifierFactory();
   final Map<GloveHand, (ModelBundle?, GestureClassifier)> _classifiers = {};
+  DartMlpClassifier? _twoHand;
   bool _userEnabled = true; // Developer toggle, default ON
 
   @override
@@ -249,22 +252,38 @@ class RecognitionController extends Notifier<RecognitionState> {
     }
 
     _motion.add(now, frame.pitchDeg, rollDeg: frame.rollDeg);
-    final prediction = classifier.classifyFrame(frame);
+    var prediction = classifier.classifyFrame(frame);
+    var floor = classifier.confidenceFloor;
+    var rest = classifier.restLabel;
+    var labels = bundle?.labels;
+    // Both gloves on: a confident two-hand word always beats the one-hand
+    // guess — it saw the left hand too (e.g. Maraming Salamat's right hand
+    // alone looks like Salamat).
+    final two = _twoHandPrediction(live, now);
+    if (two != null) {
+      final (p, spec) = two;
+      if (p.label != spec.restClass && p.confidence >= spec.confidenceFloor) {
+        prediction = p;
+        floor = spec.confidenceFloor;
+        rest = spec.restClass;
+        labels = spec;
+      }
+    }
     // Trained-model semantics: below the confidence floor or the REST
     // class counts as neutral (a release), never an emission (concept
     // C5). The stand-in has no floor/REST and never reaches here with a
     // null prediction anyway.
     String? stabilizerLabel;
     if (prediction != null) {
-      final floor = classifier.confidenceFloor;
-      final rest = classifier.restLabel;
       final belowFloor = floor != null && prediction.confidence < floor;
       final isRest = rest != null && prediction.label == rest;
       // A moving sign without its movement is not that sign: neutral.
+      // shortcut: the movement check follows the signing hand's frames,
+      // which matches two-hand paths only when that is the right glove.
       final still = !_motion.allows(
           prediction.label,
-          bundle?.labels.motionPitchSpan ?? const {},
-          bundle?.labels.motionPaths ?? const {});
+          labels?.motionPitchSpan ?? const {},
+          labels?.motionPaths ?? const {});
       stabilizerLabel =
           (belowFloor || isRest || still) ? null : prediction.label;
     }
@@ -283,7 +302,7 @@ class RecognitionController extends Notifier<RecognitionState> {
     final emitLabel = result.emitLabel;
     if (emitLabel == null) return;
     // One movement, one emission: repeating the sign needs a new movement.
-    if (bundle?.labels.motionPaths.containsKey(emitLabel) ?? false) {
+    if (labels?.motionPaths.containsKey(emitLabel) ?? false) {
       _motion.reset();
     }
     // Read now, not at build: words can be added while the app runs.
@@ -317,6 +336,25 @@ class RecognitionController extends Notifier<RecognitionState> {
     final classifier = _factory.create(bundle, hand);
     _classifiers[hand] = (bundle, classifier);
     return classifier;
+  }
+
+  /// The two-hand model's guess when it shipped and both gloves send
+  /// gate-clean frames; null otherwise.
+  (Prediction, LabelsSpec)? _twoHandPrediction(LiveState live, DateTime now) {
+    final bundle = ref.read(twoHandModelBundleProvider).value;
+    final l = live.left.telemetry;
+    final r = live.right.telemetry;
+    if (bundle == null || l == null || r == null) return null;
+    final lf = HandFrame.fromTelemetry(l, uncalibrated: live.left.uncalibrated);
+    final rf =
+        HandFrame.fromTelemetry(r, uncalibrated: live.right.uncalibrated);
+    if (RefuseGate.evaluate(lf, now: now) != GateReason.none ||
+        RefuseGate.evaluate(rf, now: now) != GateReason.none) {
+      return null;
+    }
+    if (_twoHand?.bundle != bundle) _twoHand = DartMlpClassifier(bundle);
+    final p = _twoHand!.classifyPair(lf, rf);
+    return p == null ? null : (p, bundle.labels);
   }
 
   /// Signing hand per the preference: manual hands are used as chosen;

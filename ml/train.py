@@ -48,17 +48,25 @@ MIN_LABELS_PER_HAND = 3
 
 INPUT_A = [f"ang_{f}" for f in FINGERS]
 INPUT_B = INPUT_A + ["roll", "pitch"]
-VARIANTS = {"A": INPUT_A, "B": INPUT_B}
+# Variant C: world-up direction in the hand frame instead of roll/pitch.
+# Roll wraps at +/-180 and is unstable near pitch 90 (fingers up, where
+# most letters sit); the up vector does neither.
+INPUT_C = INPUT_A + ["up_x", "up_y", "up_z"]
+# Two-hand model (Both mode): each hand's angles + roll/pitch.
+INPUT_2 = [f"L_{c}" for c in INPUT_B] + [f"R_{c}" for c in INPUT_B]
+VARIANTS = {"A": INPUT_A, "B": INPUT_B, "C": INPUT_C, "2": INPUT_2}
+PAIR_MS = 150  # a left reading pairs with the right one this close in time
 
 MOTION_WINDOW_MS = 1500     # the app looks back this far for the motion
 DEFAULT_MOTION_SPAN = 40.0  # only when no take has 2+ rows to measure
 
 
+MIN_FLOOR = 0.80      # lowest confidence the app may speak at
 PATH_POINTS = 5        # checkpoints kept per recorded movement
-PATH_TOLERANCE = 0.4   # of the movement's size; < 0.5 so start != end
+PATH_TOLERANCE = 0.3   # of the movement's size; < 0.5 so start != end (0.4 let other signs pass)
 MIN_PATH_ROWS = 3
 CONFLICT_SHARE = 0.2   # of a word's takes spoken as another word
-MOVING_SPREAD = 20.0   # deg: median take above this = moving label
+MOVING_SPREAD = 10.0   # deg: median take above this = moving label (still takes p99 ~7)
 PATH_WINDOW_FRAMES = 40  # the app's 2 s look-back at 20 Hz (MotionGate)
 SPAN_WINDOW_FRAMES = 30  # its 1.5 s pitch-change look-back
 
@@ -149,8 +157,10 @@ def _spoken(take, predict, classes, variant, floor, gates, paths):
     at = np.arange(-2, len(v) - 1 + 2 + 1e-9, 0.25)  # 0.4 s hold each side
     v = np.stack([np.interp(at, np.arange(len(v)), v[:, i])
                   for i in range(v.shape[1])], axis=1)
-    prob = predict(v[:, :len(VARIANTS[variant])].astype(np.float32))
     up = _up_path([{"roll": x[5], "pitch": x[6]} for x in v])
+    feats = np.hstack([v[:, :5], up]) if variant == "C" else \
+        v[:, :len(VARIANTS[variant])]
+    prob = predict(feats.astype(np.float32))
     votes, spoken = [], set()
     for i in range(len(v)):
         label = classes[int(prob[i].argmax())]
@@ -232,7 +242,7 @@ def _bake_normalization(layers, mu, sigma):
 
 
 def train_mlp(X, y, classes, X_val, y_val, seed=7, epochs=MAX_EPOCHS,
-              input_has_roll_pitch=False):
+              input_has_roll_pitch=False, cols=None):
     """Adam + class weights + per-batch augmentation + early stopping.
 
     X/X_val are RAW degrees (no preprocessing): standardization happens
@@ -240,6 +250,7 @@ def train_mlp(X, y, classes, X_val, y_val, seed=7, epochs=MAX_EPOCHS,
     +-5 deg roll/pitch) BEFORE normalization. Returns (model, mu, sigma)
     so callers evaluate/export with the same statistics."""
     rng = np.random.default_rng(seed)
+    names = cols or next(v for v in VARIANTS.values() if len(v) == X.shape[1])
     mu = X.mean(axis=0)
     sigma = X.std(axis=0) + 1e-6
     Xn = (X - mu) / sigma
@@ -273,11 +284,12 @@ def train_mlp(X, y, classes, X_val, y_val, seed=7, epochs=MAX_EPOCHS,
         Near-constant features (sigma < 1e-3) get no noise — dividing a
         few degrees by ~0 would explode the standardized batch."""
         out = batch_raw.copy()
-        n_angles = len(INPUT_A)
-        for j in range(out.shape[1]):
+        for j, c in enumerate(names):
             if sigma[j] < 1e-3:
                 continue
-            scale = AUG_ANGLE if j < n_angles else AUG_ROLL_PITCH
+            scale = (AUG_ANGLE if c.startswith(("ang_", "L_ang_", "R_ang_"))
+                     else np.radians(AUG_ROLL_PITCH) if c.startswith("up_")
+                     else AUG_ROLL_PITCH)
             out[:, j] += rng.uniform(-scale, scale, len(batch_raw))
         return (out - mu) / sigma
 
@@ -382,6 +394,11 @@ def rows_for(rows, session_set):
 
 def feature_matrix(rows, variant):
     cols = VARIANTS[variant]
+    if variant == "C":
+        up = _up_path(rows) if rows else np.zeros((0, 3))
+        return np.hstack([np.array([[r[c] for c in INPUT_A] for r in rows],
+                                   dtype=np.float32).reshape(-1, 5),
+                          up]).astype(np.float32)
     return np.array([[r[c] for c in cols] for r in rows], dtype=np.float32)
 
 
@@ -498,7 +515,9 @@ def confidence_floor(model, X, rows):
                       "precision": round(prec, 4)})
         if floor is None and prec >= 0.95:
             floor = round(float(t), 2)
-    return floor, table
+    # Unseen poses (relaxed hand, moving between signs) can still score
+    # high on some class: never speak below MIN_FLOOR.
+    return max(floor or 0.0, MIN_FLOOR), table
 
 
 # --------------------------------------------------------------- export
@@ -596,6 +615,73 @@ def write_confusion_png(cm, classes, path):
         f.write(png)
 
 
+# ------------------------------------------------------------ two hands
+
+def pair_two_hand(rows):
+    """Both-mode rows -> one row per left reading, joined with the right
+    reading of the same take nearest in time (dropped beyond PAIR_MS).
+    roll/pitch/session come from the right hand: the app's movement check
+    follows the right glove."""
+    right = {}
+    for r in rows:
+        if r["hand"] == "R":
+            right.setdefault((r["signer"], r["label"], r["take"]), []).append(r)
+    out = []
+    for left in rows:
+        if left["hand"] != "L":
+            continue
+        cands = right.get((left["signer"], left["label"], left["take"]), [])
+        if not cands:
+            continue
+        r = min(cands, key=lambda c: abs(c["ts"] - left["ts"]))
+        if abs(r["ts"] - left["ts"]) > PAIR_MS:
+            continue  # same take number from another recording run
+        row = {k: r[k] for k in ("signer", "session", "take", "label",
+                                 "calibration_id", "roll", "pitch")}
+        row["hand"] = "LR"
+        for c in INPUT_B:
+            row["L_" + c], row["R_" + c] = left[c], r[c]
+        out.append(row)
+    return out
+
+
+def train_two_hand(input_dir, out_dir, seed=7, custom_ids=None):
+    """Two-hand model from Both-mode sessions -> labels_two.json +
+    weights_two.json. Returns a report section, or None without data."""
+    rows, _ = load_dataset(input_dir, two_hand=True)
+    paired = pair_two_hand(rows)
+    if len({r["label"] for r in paired}) < 2:
+        return None
+    sessions = split_sessions(paired, seed)
+    note = ""
+    if not all(sessions):
+        paired = [dict(r, session=f"{r['session']}#take{r['take']}")
+                  for r in paired]
+        sessions = split_sessions(paired, seed)
+        note = "split by take: held-out accuracy is OPTIMISTIC (same sitting)"
+    tr, va, te = (rows_for(paired, s) for s in sessions)
+    classes = sorted({r["label"] for r in paired})
+    model, mu, sigma = train_mlp(
+        feature_matrix(tr, "2"), [r["label"] for r in tr], classes,
+        feature_matrix(va, "2"), [r["label"] for r in va], seed=seed,
+        input_has_roll_pitch=True, cols=INPUT_2)
+    Xte = (feature_matrix(te, "2") - mu) / sigma
+    metrics = evaluate(model, Xte, te)
+    floor, _ = confidence_floor(model, Xte, te)
+    export_weights(model, mu, sigma,
+                   os.path.join(out_dir, "weights_two.json"), "2")
+    trained_on = {"session_ids": sorted({r["session"] for r in rows}),
+                  "row_counts": {"LR": len(paired)}, "variant": "2"}
+    export_labels(os.path.join(out_dir, "labels_two.json"), "LR", "2",
+                  model.classes, floor, metrics, trained_on,
+                  motion_gates(paired), motion_paths(paired), custom_ids)
+    return "\n".join([
+        "## Two-hand model (Both mode)", "",
+        f"paired readings: {len(paired)} · words: {', '.join(classes)}",
+        f"accuracy: {metrics['accuracy']} · confidence floor: {floor}",
+        *([note] if note else []), ""])
+
+
 # ---------------------------------------------------------------- main
 
 def main():
@@ -648,7 +734,7 @@ def main():
             loader_report.setdefault("split_notes", []).append(note)
             print("WARNING: " + note)
             sessions = split_sessions(hr, args.seed)
-        for variant in ("A", "B"):
+        for variant in ("A", "B", "C"):
             X = feature_matrix(hr, variant)
             X_train = feature_matrix(rows_for(hr, sessions[0]), variant)
             X_val = feature_matrix(rows_for(hr, sessions[1]), variant)
@@ -745,6 +831,9 @@ def main():
     report = _report_text(args, loader_report, hands, train_hands,
                           canonical, variant, metrics, floor, floor_table,
                           trained_on, signers, wrong, conflicts)
+    two = train_two_hand(args.input_dir, args.out, args.seed, custom_ids)
+    if two:
+        report += "\n" + two
     with open(os.path.join(args.out, "report.md"), "w",
               encoding="utf-8") as f:
         f.write(report)
@@ -752,21 +841,6 @@ def main():
               encoding="utf-8") as f:
         f.write(report)
     print(report)
-
-    # TFLite export (requires tensorflow; degrades loudly when absent).
-    try:
-        import export_tflite
-        export_tflite.export(args.out, variant=variant,
-                             weights_path=os.path.join(
-                                 args.out, "weights.json"),
-                             labels_path=os.path.join(
-                                 args.out, "labels.json"),
-                             clean_csv=clean_path,
-                             representative_rows=20)
-    except ImportError as e:
-        print(f"TFLite export skipped: {e} "
-              f"(pip install tensorflow to produce .tflite) — "
-              f"weights.json remains the C4 fallback source.")
 
 
 def _report_text(args, loader_report, hands, train_hands, canonical,

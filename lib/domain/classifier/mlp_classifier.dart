@@ -37,9 +37,16 @@ class DartMlpClassifier implements GestureClassifier {
   double get confidenceFloor => bundle.labels.confidenceFloor;
 
   @override
-  Prediction? classifyFrame(HandFrame frame) {
-    final probs = probabilityVector(frame);
-    if (probs == null) return null; // input spec demands an unknown field
+  Prediction? classifyFrame(HandFrame frame) => _predict(_features(frame));
+
+  /// Two-hand models (labels.json hand 'LR', inputs L_*/R_*): one
+  /// prediction from both gloves' frames.
+  Prediction? classifyPair(HandFrame left, HandFrame right) =>
+      _predict(_features(right, left: left, right: right));
+
+  Prediction? _predict(List<double>? features) {
+    if (features == null) return null; // input spec demands an unknown field
+    final probs = _forward(features);
 
     var best = 0;
     for (var i = 1; i < probs.length; i++) {
@@ -66,25 +73,44 @@ class DartMlpClassifier implements GestureClassifier {
     return _forward(features);
   }
 
-  /// Input vector per labels.json's input_spec order.
-  List<double>? _features(HandFrame frame) {
+  /// Input vector per labels.json's input_spec order. L_/R_ names read the
+  /// [left]/[right] frame (two-hand models); null when that frame is absent.
+  List<double>? _features(HandFrame frame,
+      {HandFrame? left, HandFrame? right}) {
     final out = <double>[];
-    for (final name in bundle.labels.inputOrder) {
+    for (final raw in bundle.labels.inputOrder) {
+      var f = frame;
+      var name = raw;
+      if (raw.startsWith('L_') || raw.startsWith('R_')) {
+        final side = raw.startsWith('L_') ? left : right;
+        if (side == null) return null;
+        f = side;
+        name = raw.substring(2);
+      }
       switch (name) {
         case 'ang_thumb':
-          out.add(frame.angles[0]);
+          out.add(f.angles[0]);
         case 'ang_pointer':
-          out.add(frame.angles[1]);
+          out.add(f.angles[1]);
         case 'ang_middle':
-          out.add(frame.angles[2]);
+          out.add(f.angles[2]);
         case 'ang_ring':
-          out.add(frame.angles[3]);
+          out.add(f.angles[3]);
         case 'ang_pinky':
-          out.add(frame.angles[4]);
+          out.add(f.angles[4]);
         case 'roll':
-          out.add(frame.rollDeg);
+          out.add(f.rollDeg);
         case 'pitch':
-          out.add(frame.pitchDeg);
+          out.add(f.pitchDeg);
+        // World-up in the hand frame (ml/train.py _up_path): no roll wrap.
+        case 'up_x':
+          out.add(math.sin(f.pitchDeg * math.pi / 180));
+        case 'up_y':
+          out.add(math.cos(f.pitchDeg * math.pi / 180) *
+              math.sin(f.rollDeg * math.pi / 180));
+        case 'up_z':
+          out.add(math.cos(f.pitchDeg * math.pi / 180) *
+              math.cos(f.rollDeg * math.pi / 180));
         default:
           return null;
       }

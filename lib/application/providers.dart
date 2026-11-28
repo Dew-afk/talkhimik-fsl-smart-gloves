@@ -128,6 +128,11 @@ final recognitionEventBusProvider =
 final modelBundleProvider = FutureProvider<ModelBundle?>(
     (ref) => ModelAssetLoader().load());
 
+/// The two-hand model (null until one is trained from Both recordings).
+final twoHandModelBundleProvider = FutureProvider<ModelBundle?>((ref) =>
+    ModelAssetLoader().load(
+        ModelAssetLoader.twoLabelsPath, ModelAssetLoader.twoWeightsPath));
+
 final appVersionProvider = Provider<String>((ref) => kAppVersion);
 
 final ttsServiceProvider = Provider<TtsService>((ref) => FlutterTtsService());

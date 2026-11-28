@@ -1,6 +1,2 @@
-# C3 training pipeline. Core (loader, splits, MLP, eval, exports) needs
-# only numpy. TensorFlow is OPTIONAL: it produces the .tflite artifacts;
-# without it, train.py degrades loudly and weights.json remains the
-# source for the C4 pure-Dart fallback.
+# C3 training pipeline: needs only numpy (the app runs weights.json).
 numpy>=1.26
-# tensorflow>=2.16   # uncomment for tflite export: pip install tensorflow

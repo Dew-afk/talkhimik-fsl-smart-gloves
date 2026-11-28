@@ -54,6 +54,33 @@ const goldenLabelsJson = '''
 }
 ''';
 
+/// Two-hand test model: 'Salamat' scores with the LEFT glove's bend,
+/// '_rest' otherwise (right glove ignored). 14 inputs, one dense layer.
+ModelBundle twoHandBundle() {
+  const order = [
+    'L_ang_thumb', 'L_ang_pointer', 'L_ang_middle', 'L_ang_ring',
+    'L_ang_pinky', 'L_roll', 'L_pitch',
+    'R_ang_thumb', 'R_ang_pointer', 'R_ang_middle', 'R_ang_ring',
+    'R_ang_pinky', 'R_roll', 'R_pitch',
+  ];
+  final orderJson = order.map((o) => '"$o"').join(',');
+  final rows = [
+    for (final o in order)
+      o.startsWith('L_ang') ? '[0.05,-0.05]' : '[0,0]',
+  ].join(',');
+  return ModelBundle.assemble('''
+{"version": 1, "hand": "LR", "rest_class": "_rest",
+ "input_spec": {"order": [$orderJson], "units": 14, "variant": "2"},
+ "classes": [{"index": 0, "label": "Salamat", "word_id": 104},
+             {"index": 1, "label": "_rest", "word_id": 0}],
+ "confidence_floor": 0.8, "floor_precision_95": true,
+ "trained_on": {"dataset_hash": "two00001"}}
+''', '''
+{"input_order": [$orderJson], "classes": ["Salamat", "_rest"],
+ "layers": [{"weights": [$rows], "bias": [-8, 0]}]}
+''')!;
+}
+
 HandFrame pose(List<double> angles) => HandFrame(
       hand: GloveHand.left,
       angles: angles,
@@ -67,6 +94,47 @@ HandFrame pose(List<double> angles) => HandFrame(
     );
 
 void main() {
+  test('up_* inputs: roll +179 and -179 give the same features', () {
+    final bundle = ModelBundle.assemble('''
+{"version": 1, "hand": "L", "rest_class": "_rest",
+ "input_spec": {"order": ["up_x", "up_y", "up_z"], "units": 3,
+                "variant": "C"},
+ "classes": [{"index": 0, "label": "A", "word_id": 1},
+             {"index": 1, "label": "_rest", "word_id": 0}],
+ "confidence_floor": 0.5, "floor_precision_95": true,
+ "trained_on": {"dataset_hash": "up000001"}}
+''', '''
+{"input_order": ["up_x", "up_y", "up_z"], "classes": ["A", "_rest"],
+ "layers": [{"weights": [[0, 0], [5, 0], [0, 0]], "bias": [0, 0]}]}
+''')!;
+    final c = DartMlpClassifier(bundle);
+    HandFrame tilt(double roll) => HandFrame(
+          hand: GloveHand.left,
+          angles: const [0, 0, 0, 0, 0],
+          rollDeg: roll,
+          pitchDeg: 0,
+          yawDeg: 0,
+          validMask: 0x1F,
+          calibrationId: 3,
+          uncalibratedFlag: false,
+          timestamp: DateTime.now(),
+        );
+    // up_y = sin(roll): +90 scores A, -90 scores REST; 179 ~ -179.
+    expect(c.classifyFrame(tilt(90))!.label, 'A');
+    expect(c.classifyFrame(tilt(-90))!.label, '_rest');
+    expect(c.classifyFrame(tilt(179))!.confidence,
+        closeTo(c.classifyFrame(tilt(-179))!.confidence, 0.05));
+  });
+
+  test('a two-hand model reads each glove from its own frame', () {
+    final c = DartMlpClassifier(twoHandBundle());
+    final fist = pose([50, 70, 70, 70, 70]);
+    final flat = pose([5, 5, 5, 5, 5]);
+    expect(c.classifyPair(fist, flat)!.label, 'Salamat');
+    expect(c.classifyPair(flat, fist)!.label, '_rest'); // sides matter
+    expect(c.classifyFrame(fist), isNull); // needs both gloves
+  });
+
   final bundle = ModelBundle.assemble(goldenLabelsJson, goldenWeightsJson)!;
   final classifier = DartMlpClassifier(bundle);
 

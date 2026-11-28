@@ -15,10 +15,16 @@ class ModelAssetLoader {
   static const String labelsPath = 'assets/models/labels.json';
   static const String weightsPath = 'assets/models/weights.json';
 
-  Future<ModelBundle?> load() async {
+  /// Two-hand model (Both mode recordings, labels hand 'LR'); optional.
+  static const String twoLabelsPath = 'assets/models/labels_two.json';
+  static const String twoWeightsPath = 'assets/models/weights_two.json';
+
+  Future<ModelBundle?> load(
+      [String labelsAsset = labelsPath,
+      String weightsAsset = weightsPath]) async {
     try {
-      final labels = await _bundle.loadString(labelsPath);
-      final weights = await _bundle.loadString(weightsPath);
+      final labels = await _bundle.loadString(labelsAsset);
+      final weights = await _bundle.loadString(weightsAsset);
       return ModelBundle.assemble(labels, weights);
     } catch (_) {
       // FlutterError from loadString (asset absent) or an assemble null —

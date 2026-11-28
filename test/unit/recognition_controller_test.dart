@@ -7,6 +7,7 @@ import 'package:talkhimik_app/domain/models/gesture_result.dart';
 import 'package:talkhimik_app/domain/models/telemetry_packet.dart';
 
 import '../helpers/fake_glove_connection.dart';
+import 'mlp_classifier_test.dart' show twoHandBundle;
 import '../helpers/fake_tts_service.dart';
 import '../helpers/in_memory_calinfo_cache.dart';
 import '../helpers/in_memory_log_store.dart';
@@ -81,7 +82,7 @@ ModelBundle testBundle(
 void main() {
   (ProviderContainer, FakeGloveConnection, FakeGloveConnection, InMemorySettingsService,
       InMemoryLogStore, FakeTtsService) makeContainer(
-      {bool mock = false, ModelBundle? bundle}) {
+      {bool mock = false, ModelBundle? bundle, ModelBundle? twoHand}) {
     final left = FakeGloveConnection();
     final right = FakeGloveConnection();
     final settings = InMemorySettingsService();
@@ -96,6 +97,8 @@ void main() {
       ttsServiceProvider.overrideWithValue(tts),
       calInfoCacheProvider.overrideWithValue(InMemoryCalInfoCache()),
       modelBundleProvider.overrideWith((ref) => Future.value(bundle)),
+      twoHandModelBundleProvider
+          .overrideWith((ref) => Future.value(twoHand)),
     ]);
     addTearDown(c.dispose);
     c.read(liveControllerProvider);
@@ -367,6 +370,55 @@ void main() {
 
     expect(c.read(transcriptControllerProvider).entries.single.wordId, 1000);
     expect(tts.spoken, contains('Kain'));
+  });
+
+  test('both gloves on: a confident two-hand word wins over the one-hand '
+      'REST', () async {
+    final (c, left, right, _, _, _) = makeContainer(
+        bundle: testBundle(floor: 0.5, hand: 'R'), twoHand: twoHandBundle());
+    c.read(transcriptControllerProvider);
+    await c.read(modelBundleProvider.future);
+    await c.read(twoHandModelBundleProvider.future);
+    await pump(c);
+    left.emitStatus(const DeviceStatusPacket(uncalibrated: false));
+    right.emitStatus(const DeviceStatusPacket(uncalibrated: false));
+    for (var i = 0; i < 25; i++) {
+      left.emitTelemetry(fistFrame(i));
+      right.emitTelemetry(TelemetryPacket(
+        hand: GloveHand.right,
+        seq: i,
+        angles: const [5, 5, 5, 5, 5], // relaxed: the one-hand model says REST
+        rollDeg: 0,
+        pitchDeg: 0,
+        yawDeg: 0,
+        rawAdc: const [100, 200, 300, 400, 500],
+        calibrationId: 3,
+        quality: 0x1F,
+        receivedAt: DateTime.now(),
+      ));
+      await pump(c);
+    }
+    final entries = c.read(transcriptControllerProvider).entries;
+    expect(entries.map((e) => e.filipino), ['Salamat']);
+  });
+
+  test('both gloves on: a confident two-hand word beats a confident '
+      'one-hand word', () async {
+    final (c, left, right, _, _, _) = makeContainer(
+        bundle: testBundle(floor: 0.5, hand: 'R'), twoHand: twoHandBundle());
+    c.read(transcriptControllerProvider);
+    await c.read(modelBundleProvider.future);
+    await c.read(twoHandModelBundleProvider.future);
+    await pump(c);
+    left.emitStatus(const DeviceStatusPacket(uncalibrated: false));
+    right.emitStatus(const DeviceStatusPacket(uncalibrated: false));
+    for (var i = 0; i < 25; i++) {
+      left.emitTelemetry(fistFrame(i));
+      right.emitTelemetry(fistFrame(i, hand: GloveHand.right)); // one-hand: A
+      await pump(c);
+    }
+    final entries = c.read(transcriptControllerProvider).entries;
+    expect(entries.map((e) => e.filipino), ['Salamat']);
   });
 
   test('C4: below the confidence floor nothing is emitted (counts as a '

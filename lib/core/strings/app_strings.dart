@@ -191,9 +191,6 @@ class AppStrings {
   static String recordSensorAtLimit(String finger) =>
       'Rows are being skipped: the $finger sensor reads at its limit, '
       'which usually means a loose or broken wire.';
-  static const recordLinkLoss =
-      'Rows are being skipped: the Bluetooth link is losing data. '
-      'Move the phone closer to the glove.';
   static const recordNoNewData =
       'Rows are being skipped: no new readings from the glove. '
       'Check that it is still connected.';
@@ -202,7 +199,15 @@ class AppStrings {
       'Nothing selected. Tap a bubble below to choose what to record.';
   static const datasetStartTake = 'Start take';
   static const datasetStopTake = 'Stop take';
-  static String datasetUndoTake(String label) => 'Undo last take ($label)';
+  static const recordHandRight = 'Right';
+  static const recordHandLeft = 'Left';
+  static const recordHandBoth = 'Both';
+  static const recordPickHands =
+      'Both gloves are on. Pick Right, Left or Both before recording.';
+  static const recordHandNotConnected =
+      "That glove isn't connected. Connect it or pick another hand.";
+  static String datasetUndoTake(String label, int more) =>
+      more == 0 ? 'Undo last take ($label)' : 'Undo last take ($label) · $more more';
   static const datasetUndoTitle = 'Remove the last take?';
   static String datasetUndoBody(String label) =>
       'The last "$label" take will be deleted from the dataset. '
@@ -263,7 +268,6 @@ class AppStrings {
   static const addWordExists = 'This word is already in the list.';
   static const moveWordStill = 'Still';
   static const moveWordMovement = 'Movement';
-  static const coverageLater = 'later';
   static const coverageNeedsData = 'needs data';
   static const coverageOk = 'ok';
   static const coverageGood = 'good';

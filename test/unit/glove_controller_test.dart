@@ -268,4 +268,33 @@ void main() {
     expect(leftFake.reconnectCalls, 0); // left connection untouched
     expect(c.read(rightGloveControllerProvider).connectionLost, isTrue);
   });
+
+  test('connecting the left glove after the right leaves the right connected',
+      () async {
+    final leftFake = FakeGloveConnection();
+    final rightFake = FakeGloveConnection();
+    final c = ProviderContainer(
+      overrides: [
+        gloveConnectionProvider.overrideWithValue(leftFake),
+        rightGloveConnectionProvider.overrideWithValue(rightFake),
+      ],
+    );
+    addTearDown(c.dispose);
+    c.read(gloveControllerProvider);
+    c.read(rightGloveControllerProvider);
+
+    await c.read(rightGloveControllerProvider.notifier).connect();
+    rightFake.emitPhase(GloveConnectionPhase.ready);
+    await pumpEventQueue();
+    await c.read(gloveControllerProvider.notifier).connect();
+    leftFake.emitPhase(GloveConnectionPhase.ready);
+    await pumpEventQueue();
+
+    expect(rightFake.connectCalls, 1);
+    expect(leftFake.connectCalls, 1);
+    expect(rightFake.disconnectCalls, 0);
+    expect(c.read(rightGloveControllerProvider).phase,
+        GloveConnectionPhase.ready);
+    expect(c.read(gloveControllerProvider).phase, GloveConnectionPhase.ready);
+  });
 }

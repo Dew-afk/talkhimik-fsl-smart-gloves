@@ -113,7 +113,7 @@ void main() {
         AppStrings.recordNeedsCalibration);
   });
 
-  test('link loss > 3 frames drops, a late sample does not; take_id '
+  test('link loss > 3 frames is counted but the fresh frame kept; take_id '
       'increments per start press (master §5.1)', () async {
     final c = makeContainer();
     await emitCalInfo(calInfo(3));
@@ -130,15 +130,14 @@ void main() {
       await emit(frame(q, 3));
     }
     await recorder.sampleNow();
-    await emit(frame(20, 3)); // 4 frames lost on the link → dropped
+    await emit(frame(20, 3)); // 4 frames lost on the link → counted, kept
     await recorder.sampleNow();
-    expect(c.read(datasetRecorderControllerProvider).error,
-        AppStrings.recordLinkLoss);
+    expect(c.read(datasetRecorderControllerProvider).error, isNull);
 
     var s = c.read(datasetRecorderControllerProvider);
-    expect(s.active[GloveHand.left]!.rows, 2);
+    expect(s.active[GloveHand.left]!.rows, 3);
     expect(s.active[GloveHand.left]!.seqGapDrops, 1);
-    expect(s.active[GloveHand.left]!.droppedFrames, 1);
+    expect(s.active[GloveHand.left]!.droppedFrames, 0);
     expect(s.active[GloveHand.left]!.takeId, 1);
 
     // Second take: take_id increments within the session.
@@ -150,7 +149,7 @@ void main() {
     s = c.read(datasetRecorderControllerProvider);
     expect(s.error, isNull); // a written row clears the skip message
     expect(s.active[GloveHand.left]!.takeId, 2);
-    expect(s.active[GloveHand.left]!.rows, 3);
+    expect(s.active[GloveHand.left]!.rows, 4);
   });
 
   test('ADC rail (raw 0 or 4095) drops only on VALID fingers', () async {
@@ -276,15 +275,16 @@ void main() {
     expect(c.read(datasetRecorderControllerProvider).undoLabel, 'A');
 
     await recorder.startTake('B'); // the misinput
-    expect(c.read(datasetRecorderControllerProvider).undoLabel, '');
     await emit(frame(12, 3));
     await recorder.sampleNow();
     await recorder.stopTake();
     expect(c.read(datasetRecorderControllerProvider).undoLabel, 'B');
+    expect(c.read(datasetRecorderControllerProvider).undoMore, 1);
 
     await recorder.undoLastTake();
     final s = c.read(datasetRecorderControllerProvider);
-    expect(s.undoLabel, ''); // one level only
+    expect(s.undoLabel, 'A'); // the take before it is next
+    expect(s.undoMore, 0);
     expect(s.active[GloveHand.left]!.rows, 2);
     expect(s.sessions.single.rows, 2);
     final csv = dir
@@ -299,6 +299,117 @@ void main() {
     final index = await c.read(coverageIndexStoreProvider).rebuild();
     expect(index.labels.containsKey('B'), isFalse);
     expect(index.labels['A']!.takes, 1);
+  });
+
+  test('undo steps back through several takes, newest first', () async {
+    final c = makeContainer();
+    await emitCalInfo(calInfo(3));
+    await startRecording(c);
+    final recorder = c.read(datasetRecorderControllerProvider.notifier);
+    var seq = 10;
+    for (final label in ['A', 'B', 'C']) {
+      await recorder.startTake(label);
+      await emit(frame(seq++, 3));
+      await recorder.sampleNow();
+      await recorder.stopTake();
+    }
+    expect(c.read(datasetRecorderControllerProvider).undoMore, 2);
+
+    final undone = <String>[];
+    while (c.read(datasetRecorderControllerProvider).undoLabel.isNotEmpty) {
+      undone.add(c.read(datasetRecorderControllerProvider).undoLabel);
+      await recorder.undoLastTake();
+    }
+    expect(undone, ['C', 'B', 'A']);
+    expect(c.read(datasetRecorderControllerProvider).sessions.single.rows, 0);
+  });
+
+  test('deleting a session drops its takes from undo', () async {
+    final c = makeContainer();
+    await emitCalInfo(calInfo(3));
+    await startRecording(c);
+    final recorder = c.read(datasetRecorderControllerProvider.notifier);
+    await recorder.startTake('A');
+    await emit(frame(10, 3));
+    await recorder.sampleNow();
+    await recorder.stopTake();
+    await recorder.stop();
+
+    await recorder.deleteSession(
+        c.read(datasetRecorderControllerProvider).sessions.single);
+    expect(c.read(datasetRecorderControllerProvider).undoLabel, '');
+  });
+
+  Future<void> bothGlovesOn() async {
+    await emitCalInfo(calInfo(3));
+    right.emitCalInfo(calInfo(4));
+    await emit(frame(10, 3));
+    right.emitTelemetry(frame(10, 4));
+    await pumpEventQueue();
+  }
+
+  test('both gloves on: recording waits for a hand choice, then saves only '
+      'that glove', () async {
+    final c = makeContainer();
+    await bothGlovesOn();
+    final recorder = c.read(datasetRecorderControllerProvider.notifier);
+    await startRecording(c);
+    expect(c.read(datasetRecorderControllerProvider).error,
+        AppStrings.recordPickHands);
+    expect(c.read(datasetRecorderControllerProvider).phase,
+        RecordingPhase.idle);
+
+    recorder.setRecordHands('right');
+    await startRecording(c);
+    await recorder.startTake('A');
+    await emit(frame(11, 3));
+    right.emitTelemetry(frame(11, 4));
+    await pumpEventQueue();
+    await recorder.sampleNow();
+    final s = c.read(datasetRecorderControllerProvider);
+    expect(s.active.keys, [GloveHand.right]);
+    expect(s.active[GloveHand.right]!.twoHand, isFalse);
+
+    recorder.setRecordHands('left'); // locked while recording
+    expect(c.read(datasetRecorderControllerProvider).recordHands, 'right');
+  });
+
+  test('a chosen glove that is not connected blocks recording', () async {
+    final c = makeContainer();
+    await emitCalInfo(calInfo(3));
+    await emit(frame(10, 3)); // only the left glove is on
+    c.read(datasetRecorderControllerProvider.notifier).setRecordHands('right');
+    await startRecording(c);
+    expect(c.read(datasetRecorderControllerProvider).error,
+        AppStrings.recordHandNotConnected);
+  });
+
+  test('Both mode saves each glove with the same take, marked two-handed',
+      () async {
+    final c = makeContainer();
+    await bothGlovesOn();
+    final recorder = c.read(datasetRecorderControllerProvider.notifier);
+    recorder.setRecordHands('both');
+    await startRecording(c);
+    await recorder.startTake('Kain');
+    await emit(frame(11, 3));
+    right.emitTelemetry(frame(11, 4));
+    await pumpEventQueue();
+    await recorder.sampleNow();
+    await recorder.stopTake();
+    await recorder.stop();
+
+    final sidecars = [
+      for (final f in dir.listSync().whereType<File>())
+        if (f.path.endsWith('_sidecar.json')) f.readAsStringSync(),
+    ];
+    expect(sidecars, hasLength(2));
+    expect(sidecars.every((s) => s.contains('"two_hand":true')), isTrue);
+    final csvs = [
+      for (final f in dir.listSync().whereType<File>())
+        if (f.path.endsWith('.csv')) f.readAsLinesSync()[1],
+    ];
+    expect(csvs.every((l) => l.contains(',Kain,1,')), isTrue);
   });
 
   test('reset deletes everything, but never while recording', () async {

@@ -1,5 +1,6 @@
 #include "imu.h"
 #include "config.h"
+#include "ble_link.h"
 #include <Arduino.h>
 #include <Wire.h>
 #include <Preferences.h>

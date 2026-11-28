@@ -26,7 +26,7 @@ class CoverageState {
         restLabel,
       ];
 
-  /// "X of Y letters ready": targets excluding J/Z at ok takes or more.
+  /// "X of Y letters ready": targets at ok takes or more.
   int readyCount(List<VocabEntry> letters) =>
       index?.readyCount(targetLabels(letters)) ?? 0;
 

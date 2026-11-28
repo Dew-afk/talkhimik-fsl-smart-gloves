@@ -8,9 +8,11 @@ Rules (all reported, none silent):
   * sessions where any of the five needed fingers is invalid (its
     ang_<finger> column is missing) are EXCLUDED — the model needs all 5
   * rows with a bad quality flag (any valid-finger bit cleared) are dropped
-  * Z is skipped (dynamic letter, no motion gate yet). J is KEPT: its
-    handshape trains like any letter and train.py exports the movement the
-    app checks before emitting it (as for every moving label)
+  * J and Z train like any letter: train.py exports the movement the app
+    checks before emitting them (as for every moving label)
+  * two-handed sessions (sidecar two_hand: true, the app's Both mode) are
+    EXCLUDED: the one-hand models cannot learn half a sign. two_hand=True
+    returns ONLY those, with timestamp_ms as "ts" (train.pair_two_hand)
   * labels with fewer than MIN_TAKES takes are dropped and reported
   * the special REST label `_rest` is kept as a normal class
   * other labels starting with `_` (`_wrong_<word>`, `_random`) are wrong
@@ -27,8 +29,8 @@ import os
 import sys
 
 FINGERS = ["thumb", "pointer", "middle", "ring", "pinky"]
-SKIP_LABELS = {"Z"}
-MOTION_LABELS = {"J"}  # always moving; others are detected (train.moving_labels)
+SKIP_LABELS = set()
+MOTION_LABELS = {"J", "Z"}  # always moving; others are detected (train.moving_labels)
 REST_LABEL = "_rest"
 MIN_TAKES = 5  # labels with fewer takes than this are dropped (reported)
 
@@ -62,15 +64,17 @@ def is_wrong_move(label):
     return label.startswith("_") and label != REST_LABEL
 
 
-def load_dataset(input_dir, wrong_moves=False):
+def load_dataset(input_dir, wrong_moves=False, two_hand=False):
     """Returns (rows, report). rows is a list of dicts in the output
     contract; report is a dict of loader decisions for report.md.
-    wrong_moves=True returns only the wrong-move rows instead."""
+    wrong_moves=True returns only the wrong-move rows instead;
+    two_hand=True only the rows of two-handed (Both mode) sessions."""
     report = {
         "files_seen": 0, "missing_sidecar": [], "cal_id_mismatch": [],
         "missing_columns": [], "invalid_finger_sessions": [],
         "bad_quality_rows_dropped": 0, "labels_skipped": sorted(SKIP_LABELS),
         "low_take_labels_dropped": {}, "rows_total": 0,
+        "two_hand_sessions_skipped": [],
     }
     deleted = {w["label"] for w in load_words(input_dir)["words"]
                if w.get("deleted")}
@@ -90,6 +94,10 @@ def load_dataset(input_dir, wrong_moves=False):
             sidecar = json.load(open(sidecar_path, encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             report["missing_sidecar"].append(name + " (corrupt)")
+            continue
+        if bool(sidecar.get("two_hand")) != two_hand:
+            if not two_hand:
+                report["two_hand_sessions_skipped"].append(name)
             continue
 
         table = _csv_rows(csv_path)
@@ -141,6 +149,7 @@ def load_dataset(input_dir, wrong_moves=False):
                 report["bad_quality_rows_dropped"] += 1
                 continue
             rows.append({
+                **({"ts": int(r["timestamp_ms"])} if two_hand else {}),
                 "signer": r["signer_id"],
                 "session": r["session_id"],
                 "take": int(r["take_id"]),
@@ -158,6 +167,8 @@ def load_dataset(input_dir, wrong_moves=False):
     # Low-take labels: count takes per label, drop below MIN_TAKES.
     takes = {}
     for r in rows:
+        if two_hand and r["hand"] != "R":
+            continue  # one take = a left and a right session: count once
         takes.setdefault(r["label"], set()).add(
             (r["session"], r["take"]))
     if wrong_moves:

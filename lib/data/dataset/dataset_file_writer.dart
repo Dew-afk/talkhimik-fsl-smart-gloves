@@ -227,6 +227,7 @@ class DatasetFileWriter {
         'hand': session.handTag,
         'calibration_id': session.calibrationId,
         'mount_calibration_id': session.mountCalibrationId,
+        'two_hand': session.twoHand,
         // Same wording as the web dashboard's sidecar.
         'roll_note': 'roll wraps at +/-180; use sin/cos(roll) or the '
             'gravity vector as ML features',

@@ -6,6 +6,17 @@
 // Right glove: advertises "TALKHIMIK-R", telemetry hand byte 1,
 // mount calibration key "mount_R". Fixed by this build: COMMAND 0x07
 // (SET_HAND) cannot change it.
+// Flex pins (XIAO label -> GPIO): thumb on D0 .. pinky on D5 (the left
+// glove is the reverse).
+#define PIN_FLEX_THUMB     1   // D0
+#define PIN_FLEX_POINTER   2   // D1
+#define PIN_FLEX_MIDDLE    4   // D3
+#define PIN_FLEX_RING      5   // D4
+#define PIN_FLEX_PINKY     6   // D5
+// Bump when these pins change: the saved calibration stores it and is
+// discarded (recalibrate) when it no longer matches.
+#define PIN_MAP_VERSION 3
+
 #define HAND 1
 
 // This glove's divider resistors -- the ONE place to edit them.

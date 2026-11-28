@@ -9,6 +9,7 @@ import '../../application/providers.dart';
 import '../../core/strings/app_strings.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/dataset/coverage_index.dart';
+import '../../domain/models/telemetry_packet.dart';
 import '../../domain/vocab/custom_word.dart';
 import '../../domain/vocab/vocab_entry.dart';
 import '../widgets/add_word_dialog.dart';
@@ -210,8 +211,6 @@ class _CollectScreenState extends ConsumerState<CollectScreen> {
     final takes = coverage.index?.labels[label]?.takes ?? 0;
     final cState = coverageLevelFor(label, takes);
     final (icon, stateName) = switch (cState) {
-      CoverageLevel.later =>
-        (Icons.schedule, AppStrings.coverageLater),
       CoverageLevel.needsData =>
         (Icons.hourglass_empty, AppStrings.coverageNeedsData),
       CoverageLevel.ok =>
@@ -251,6 +250,17 @@ class _CollectScreenState extends ConsumerState<CollectScreen> {
     ];
     final selected = _selectedLabel ?? state.label;
     final locked = state.takeActive;
+    // No choice made: show the hand that will record (the only glove on).
+    final live = ref.watch(liveControllerProvider);
+    final on = [
+      for (final h in GloveHand.values)
+        if (live.forHand(h).telemetry != null) h.name,
+    ];
+    final hands = state.recordHands.isNotEmpty
+        ? state.recordHands
+        : on.length == 1
+            ? on.single
+            : '';
 
     return Scaffold(
       appBar: AppBar(title: const Text(AppStrings.recordModeTitle)),
@@ -287,6 +297,25 @@ class _CollectScreenState extends ConsumerState<CollectScreen> {
               key: const Key('selected-label'),
               style: Theme.of(context).textTheme.titleMedium,
             ),
+          ),
+          const SizedBox(height: 12),
+          SegmentedButton<String>(
+            key: const Key('record-hands'),
+            emptySelectionAllowed: true,
+            segments: const [
+              ButtonSegment(
+                  value: 'right', label: Text(AppStrings.recordHandRight)),
+              ButtonSegment(
+                  value: 'left', label: Text(AppStrings.recordHandLeft)),
+              ButtonSegment(
+                  value: 'both', label: Text(AppStrings.recordHandBoth)),
+            ],
+            selected: {if (hands.isNotEmpty) hands},
+            onSelectionChanged: recording
+                ? null
+                : (s) {
+                    if (s.isNotEmpty) recorder.setRecordHands(s.first);
+                  },
           ),
           const SizedBox(height: 12),
           Wrap(
@@ -343,7 +372,8 @@ class _CollectScreenState extends ConsumerState<CollectScreen> {
                   key: const Key('undo-take-button'),
                   icon: const Icon(Icons.undo),
                   label: Text(
-                      AppStrings.datasetUndoTake(_display(state.undoLabel))),
+                      AppStrings.datasetUndoTake(
+                          _display(state.undoLabel), state.undoMore)),
                   onPressed: () => _confirmUndo(state.undoLabel),
                 ),
             ],
@@ -384,7 +414,7 @@ class _CollectScreenState extends ConsumerState<CollectScreen> {
           Text(
             AppStrings.coverageSummary(
               coverage.readyCount(letters),
-              letters.length - CoverageThresholds.laterLabels.length + 1,
+              letters.length + 1,
               coverage.index?.totalTakes ?? 0,
               coverage.index?.restTakes ?? 0,
             ),

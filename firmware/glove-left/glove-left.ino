@@ -164,7 +164,7 @@ void motorUpdate(uint32_t now) {
 // --------------------------------- Setup -----------------------------------
 void setup() {
   Serial.begin(115200);
-  Serial.printf("[boot] pin map v%d: flex={D0:%d,D1:%d,D3:%d,D4:%d,D5:%d} imu_sda=D8:%d imu_scl=D9:%d motor=D10:%d\n",
+  Serial.printf("[boot] pin map v%d: flex GPIO={thumb:%d,pointer:%d,middle:%d,ring:%d,pinky:%d} imu_sda=D8:%d imu_scl=D9:%d motor=D10:%d\n",
                 PIN_MAP_VERSION, FLEX_PINS[0], FLEX_PINS[1], FLEX_PINS[2],
                 FLEX_PINS[3], FLEX_PINS[4], IMU_SDA_PIN, IMU_SCL_PIN, PIN_MOTOR);
   Serial.printf("[boot] R_DIV: thumb=%.1f pointer=%.1f middle=%.1f ring=%.1f pinky=%.1f\n",

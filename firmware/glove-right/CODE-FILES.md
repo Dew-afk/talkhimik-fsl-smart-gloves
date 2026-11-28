@@ -4,15 +4,18 @@ Board: **Seeed XIAO ESP32S3** (one per hand) · Build: **Arduino IDE**
 Folders: `firmware/glove-left/` and `firmware/glove-right/` (identical except `hand.h`; run `python firmware/check_same.py`)
 Last updated: 2026-11-08
 
-## Current pin map (`config.h`, PIN_MAP_VERSION 3)
+## Current pin map (flex pins in `hand.h`: right PIN_MAP_VERSION 3, left 4)
+
+| Function       | Right glove  | Left glove (mirrored) |
+|----------------|--------------|-----------------------|
+| thumb flex     | D0 (GPIO1)   | D5 (GPIO6)            |
+| pointer flex   | D1 (GPIO2)   | D4 (GPIO5)            |
+| middle flex    | D3 (GPIO4)   | D3 (GPIO4)            |
+| ring flex      | D4 (GPIO5)   | D1 (GPIO2)            |
+| pinky flex     | D5 (GPIO6)   | D0 (GPIO1)            |
 
 | Function       | XIAO label | GPIO |
 |----------------|------------|------|
-| thumb flex     | D0         | 1    |
-| pointer flex   | D1         | 2    |
-| middle flex    | D3         | 4    |
-| ring flex      | D4         | 5    |
-| pinky flex     | D5         | 6    |
 | IMU SDA        | D8         | 7    |
 | IMU SCL        | D9         | 8    |
 | motor          | D10        | 9    |
@@ -34,7 +37,7 @@ Setup, loop, and the data path. Named after its folder (Arduino requires the `.i
 
 ### `config.h` — every pin, UUID, and constant in one place
 - Pin defines + `FLEX_PINS[5]` (order everywhere: thumb, pointer, middle, ring, pinky), `FLEX_NAMES[5]`, hand.h holds `HAND` and this glove's `R_DIV[5]` (measure your actual divider resistors and edit there only).
-- `PIN_MAP_VERSION` — bump when the pin map changes; invalidates the saved NVS calibration (recalibration required after flash).
+- `PIN_MAP_VERSION` (in `hand.h`, per glove) — bump when the pin map changes; invalidates the saved NVS calibration (recalibration required after flash).
 - BLE device name, 4 UUIDs (must match `web/index.html`), `FW_VERSION`.
 - Timing constants, COMMAND opcodes, STATUS/error codes, packet layouts + lengths (TELEMETRY 29 B, STATUS 5 B, CAL_INFO 104 B).
 
@@ -73,6 +76,7 @@ Setup, loop, and the data path. Named after its folder (Arduino requires the `.i
 | Date       | Change |
 |------------|--------|
 | 2026-11-07 | Fingers moved D0,D1,D2,D3,D4 → **D0,D1,D3,D4,D5** (GPIO 1,2,3,4,5 → 1,2,4,5,6); `PIN_MAP_VERSION` 2→3 (recalibrate after flash). IMU stayed on D8/D9. |
+| 2026-11-25 | Left glove flex pins mirrored (thumb D5 … pinky D0) to match its PCB; flex pins + `PIN_MAP_VERSION` moved to `hand.h`; left 3→4 (recalibrate the left glove). |
 
 ## Dependencies (Arduino Library Manager)
 

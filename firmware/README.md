@@ -48,24 +48,28 @@ firmware/
 
 ## Wiring (per glove — XIAO label → GPIO)
 
+Flex pins are in each glove's `hand.h`; the left PCB is mirrored. Every flex
+divider: 3.3 V → sensor → pin → 10 kΩ → GND.
+
+| Finger | Right glove | Left glove |
+|---|---|---|
+| Thumb | D0 (GPIO1) | D5 (GPIO6) |
+| Pointer | D1 (GPIO2) | D4 (GPIO5) |
+| Middle | D3 (GPIO4) | D3 (GPIO4) |
+| Ring | D4 (GPIO5) | D1 (GPIO2) |
+| Pinky | D5 (GPIO6) | D0 (GPIO1) |
+
 | Signal | XIAO pin | GPIO | Notes |
 |---|---|---|---|
-| Flex thumb | D0 | GPIO1 | ADC1_CH0 — 3.3 V → sensor → pin → 10 kΩ → GND |
-| Flex pointer | D1 | GPIO2 | ADC1_CH1 |
-| Flex middle | D2 | GPIO3 | ADC1_CH2 — strapping pin: analog input only (see note below) |
-| Flex ring | D3 | GPIO4 | ADC1_CH3 |
-| Flex pinky | D4 | GPIO5 | ADC1_CH4 |
 | IMU SDA | D8 | GPIO7 | MPU-6050/6500 |
 | IMU SCL | D9 | GPIO8 | |
 | Vibration motor | D10 | GPIO9 | PWM → 47 kΩ → NPN base, flyback diode across motor |
 | Status LED | (onboard) | GPIO21 | blinks while advertising, solid when connected |
 | Battery sense | — | disabled | XIAO VBAT divider is on ADC2, blocked while the BLE radio is on → STATUS battery = 0xFF |
 
-All ADC2 pins are avoided (disabled while the BLE radio is on). **D2 (GPIO3) is
-a strapping pin** — it is used as analog input only; if the board fails to boot
-or enter flash mode with the sensor connected, move that finger to D10 (GPIO9)
-by changing one line in `config.h` (reassign the motor if you do).
-All divider resistors are **10 kΩ** — `R_DIV[]` in `config.h` holds 10000 per
+All ADC2 pins are avoided (disabled while the BLE radio is on). D2 (GPIO3, a
+strapping pin) is not used.
+All divider resistors are **10 kΩ** — `R_DIV[]` in each `hand.h` holds 10000 per
 channel (put measured values back there if parts are ever swapped).
 
 ## Flashing each hand

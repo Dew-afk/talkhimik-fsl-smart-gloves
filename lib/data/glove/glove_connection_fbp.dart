@@ -300,7 +300,7 @@ class FlutterBlueGloveConnection implements GloveConnection {
       // 10. Short connection interval for snappy telemetry.
       try {
         await target.requestConnectionPriority(
-            connectionPriorityRequest: ConnectionPriority.balanced);
+            connectionPriorityRequest: ConnectionPriority.high);
       } catch (_) {
         // Optional optimization — never fatal.
       }

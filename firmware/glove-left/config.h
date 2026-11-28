@@ -6,20 +6,17 @@
 #include <stdint.h>
 
 // ---- Hand identity ---------------------------------------------------------
-// HAND (0 = left, 1 = right) and this glove's R_DIV[5] live in hand.h, the
-// one file that differs between glove-left/ and glove-right/.
+// HAND (0 = left, 1 = right), the flex pins + PIN_MAP_VERSION, and this
+// glove's R_DIV[5] live in hand.h, the one file that differs between
+// glove-left/ and glove-right/.
 #include "hand.h"
 
 // ---- Pin map (XIAO label -> GPIO) ------------------------------------------
 // Flex dividers: 3.3 V -> sensor -> ADC pin -> 10 kOhm -> GND. All flex pins
 // are ADC1 (usable while the BLE radio is on). The old D4/D5 I2C pins are now
 // flex pins — the IMU moved to D8/D9, so always use Wire.begin(IMU_SDA_PIN,
-// IMU_SCL_PIN), never the XIAO I2C defaults.
-#define PIN_FLEX_THUMB     1   // D0
-#define PIN_FLEX_POINTER   2   // D1
-#define PIN_FLEX_MIDDLE    4   // D3
-#define PIN_FLEX_RING      5   // D4
-#define PIN_FLEX_PINKY     6   // D5
+// IMU_SCL_PIN), never the XIAO I2C defaults. Flex pins: hand.h (mirrored
+// on the left glove).
 #define IMU_SDA_PIN        7   // D8
 #define IMU_SCL_PIN        8   // D9
 #define PIN_LED           21   // XIAO onboard LED (GPIO21)
@@ -28,9 +25,7 @@
                                // If the motor fails to start, check base drive current.
 #define LED_ACTIVE_LOW     1   // XIAO onboard LED lights on LOW; set 0 if active-high
 
-// Bump when the pin map changes — the saved NVS calibration stores this and is
-// invalidated (recalibration required) when it no longer matches.
-#define PIN_MAP_VERSION 3
+// PIN_MAP_VERSION: hand.h (per glove).
 
 // Battery: the XIAO's VBAT divider sits on ADC2, which is unusable while the
 // BLE radio is on, so battery sensing is DISABLED by default (STATUS battery
